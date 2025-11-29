@@ -23,22 +23,21 @@
 - **🔒 Privacy First:** All your data is stored exclusively in your browser's Local Storage. No data is ever sent to a server.
 - **📄 Export Functionality:** Export your job list to `.csv` or download generated documents as print-ready PDFs.
 
-## ⚙️ Configuration
+## ⚙️ Deployment & Configuration
 
-JobFlow AI loads its Gemini API key from a `config.json` file located in the root of the application. This allows you to set your API key at deployment time without storing it in the source code.
+JobFlow AI is designed to be deployed on modern hosting platforms like Vercel. It requires a single environment variable to be configured for the Gemini API to function.
 
-1.  Create a file named `config.json` in the project's root directory.
-2.  Add the following content to the file:
+**Setting up your API Key:**
 
-    ```json
-    {
-      "API_KEY": "YOUR_GEMINI_API_KEY_HERE"
-    }
-    ```
+1.  Go to your project settings on your hosting provider (e.g., Vercel).
+2.  Navigate to the "Environment Variables" section.
+3.  Create a new environment variable with the following name and value:
+    -   **Name:** `API_KEY`
+    -   **Value:** `YOUR_GEMINI_API_KEY_HERE` (Replace this with your actual Google Gemini API key).
 
-3.  Replace `"YOUR_GEMINI_API_KEY_HERE"` with your actual Google Gemini API key.
+The application will read this key at runtime. If the key is not found, the app will display a configuration error on startup.
 
-**Note:** The application will fail to make API calls if this file is not present and correctly configured. For security, do not commit `config.json` to version control.
+**Note:** For local development, you may need to use a tool that loads environment variables (like `dotenv`).
 
 ## 🛠️ How It Works
 
@@ -52,7 +51,7 @@ JobFlow AI is a completely serverless, client-side application built with:
 
 ## 🏁 Getting Started
 
-1.  **Configure your API Key:** Create a `config.json` file as described in the Configuration section above.
+1.  **Configure your API Key:** Set up the `API_KEY` environment variable as described in the section above.
 2.  **Navigate to the Profile Tab:** Go to "Profile" and paste your complete master resume. Fill in your details and save.
 3.  **Check Your Resume Health:** Go to the **"AI Coach"** tab and run the "Resume Health Check" for foundational feedback.
 4.  **Find or Add a Job:** Use the **"Find Jobs"** tab or manually add jobs via the **"Add Job"** button.

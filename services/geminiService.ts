@@ -1,14 +1,12 @@
-
-
 // FIX: Removed deprecated 'Schema' import as it is no longer available from @google/genai.
 import { GoogleGenAI, Type } from '@google/genai';
 import { InterviewQA, SearchResult, ParsedResume, SearchFilters, UserProfile, ResumeGrade } from '../types';
-import { configService } from './configService';
 
-// Helper to get client using the config service
+// Helper to get client using the environment variables
 const getClient = () => {
-  const apiKey = configService.getApiKey();
-  return new GoogleGenAI({ apiKey });
+  // As per deployment strategy, the API key is expected to be in the environment.
+  // The main App component will handle cases where this is not configured.
+  return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
 const MODEL_FAST = 'gemini-2.5-flash';

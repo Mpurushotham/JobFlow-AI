@@ -1,7 +1,3 @@
-
-
-
-
 // FIX: Corrected import statement for React and its hooks.
 import React, { useState, useEffect } from 'react';
 
@@ -11,7 +7,6 @@ import { Job, UserProfile, ViewState } from './types';
 // Import services
 import { storageService } from './services/storageService';
 import { authService } from './services/authService';
-import { configService } from './services/configService';
 
 // Import context and providers
 import { ThemeProvider } from './context/ThemeContext';
@@ -224,31 +219,25 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [authFlowState, setAuthFlowState] = useState<'welcome' | 'login' | 'signup'>('welcome');
-  const [configStatus, setConfigStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
-  const [configError, setConfigError] = useState<string>('');
+  const [apiKeyStatus, setApiKeyStatus] = useState<'loading' | 'present' | 'missing'>('loading');
 
   useEffect(() => {
+    // Check for API Key
+    const key = process.env.API_KEY;
+    if (!key || key === "YOUR_GEMINI_API_KEY_HERE") {
+      setApiKeyStatus('missing');
+    } else {
+      setApiKeyStatus('present');
+    }
+
+    // Check for auth status
     const authStatus = authService.isAuthenticated();
     setIsAuthenticated(authStatus.authenticated);
     setIsAdmin(authStatus.isAdmin);
     setCurrentUser(authStatus.username);
     setIsLoading(false);
   }, []);
-
-  useEffect(() => {
-    const loadConfig = async () => {
-      try {
-        await configService.initialize();
-        setConfigStatus('loaded');
-      } catch (error: any) {
-        console.error("Configuration failed to load:", error);
-        setConfigError(error.message || 'An unknown error occurred.');
-        setConfigStatus('error');
-      }
-    };
-    loadConfig();
-  }, []);
-
+  
   const handleLoginSuccess = (username: string, isAdminLogin: boolean) => {
     setIsAuthenticated(true);
     setIsAdmin(isAdminLogin);
@@ -264,24 +253,26 @@ const App: React.FC = () => {
     setAuthFlowState('welcome'); // Return to welcome page on logout
   };
 
-  if (isLoading || configStatus === 'loading') {
+  if (isLoading || apiKeyStatus === 'loading') {
     return <div className="w-full h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center"><p className="text-slate-400 font-semibold animate-pulse">Loading Application...</p></div>;
   }
   
-  if (configStatus === 'error') {
+  if (apiKeyStatus === 'missing') {
      return (
         <div className="w-full h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center p-8">
             <div className="text-center bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-lg border border-red-200 dark:border-red-800 max-w-lg">
                 <h2 className="text-2xl font-bold text-red-600 dark:text-red-400 mb-4">Configuration Error</h2>
                 <p className="text-slate-600 dark:text-slate-300">
-                    Could not load the application configuration from <code>/config.json</code>.
+                    The Gemini API Key is missing.
                 </p>
                 <p className="text-slate-500 dark:text-slate-400 mt-2 text-sm">
-                    Please ensure the file exists in the application's root directory and contains a valid API key.
+                   To fix this, go to your project settings in Vercel (or your hosting provider) and add an Environment Variable.
                 </p>
-                <p className="mt-4 text-xs bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 p-3 rounded-lg font-mono">
-                  Error: {configError}
-                </p>
+                <div className="mt-4 text-left text-xs bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 p-3 rounded-lg font-mono space-y-1">
+                   <p><strong>Name:</strong> API_KEY</p>
+                   <p><strong>Value:</strong> YOUR_GEMINI_API_KEY_HERE</p>
+                </div>
+                 <p className="text-xs text-slate-400 mt-2">After adding the key, you may need to redeploy the application.</p>
             </div>
         </div>
      );
