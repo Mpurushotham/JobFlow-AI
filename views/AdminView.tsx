@@ -75,7 +75,7 @@ const DataViewerModal: React.FC<{ title: string; data: any; onClose: () => void;
 );
 
 
-export const AdminView: React.FC = () => {
+const AdminView: React.FC = () => {
     const [users, setUsers] = useState<User[]>([]);
     const [profiles, setProfiles] = useState<Record<string, UserProfile>>({});
     const [jobs, setJobs] = useState<Record<string, Job[]>>({});
@@ -182,3 +182,5 @@ export const AdminView: React.FC = () => {
         </div>
     );
 };
+
+export default AdminView;

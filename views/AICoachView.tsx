@@ -66,9 +66,13 @@ const AIChat: React.FC<{ profile: UserProfile }> = ({ profile }) => {
         const result: GenerateContentResponse = await chat.sendMessage({ message: input });
         const modelMessage: ChatMessage = { role: 'model', parts: [{ text: result.text || 'Sorry, I encountered an issue.' }] };
         setHistory(prev => [...prev, modelMessage]);
-      } catch (error) {
+      } catch (error: any) {
         console.error('Gemini chat error:', error);
-        setHistory(prev => [...prev, { role: 'model', parts: [{ text: "Oops! I couldn't connect to the AI." }] }]);
+         if (error.message && error.message.includes('RATE_LIMIT_EXCEEDED')) {
+             setHistory(prev => [...prev, { role: 'model', parts: [{ text: "Looks like we're chatting a lot! The free tier has a limit, so let's pause for a minute." }] }]);
+         } else {
+            setHistory(prev => [...prev, { role: 'model', parts: [{ text: "Oops! I couldn't connect to the AI." }] }]);
+         }
       } finally {
         setLoading(false);
       }
@@ -114,8 +118,12 @@ const ResumeGrader: React.FC<{ profile: UserProfile }> = ({ profile }) => {
         try {
             const result = await geminiService.gradeResume(profile.resumeContent);
             setGrade(result);
-        } catch (e) {
-            addNotification("Failed to grade resume. Please try again.", 'error');
+        } catch (e: any) {
+            if (e.message === 'RATE_LIMIT_EXCEEDED') {
+              addNotification("You've reached the free tier limit. Please wait a minute before trying again.", 'info');
+            } else {
+              addNotification("Failed to grade resume. Please try again.", 'error');
+            }
         } finally {
             setLoading(false);
         }
@@ -206,8 +214,12 @@ const MockInterview: React.FC<{ profile: UserProfile }> = ({ profile }) => {
         try {
             const result = await geminiService.analyzeInterviewAnswer(currentQuestion, transcript, profile.resumeContent);
             setFeedback(result);
-        } catch (e) {
-            addNotification("Failed to analyze answer.", "error");
+        } catch (e: any) {
+            if (e.message === 'RATE_LIMIT_EXCEEDED') {
+              addNotification("You've reached the free tier limit. Please wait a minute before trying again.", 'info');
+            } else {
+              addNotification("Failed to analyze answer.", "error");
+            }
         } finally {
             setLoading(false);
         }
@@ -269,7 +281,7 @@ const MockInterview: React.FC<{ profile: UserProfile }> = ({ profile }) => {
 };
 
 
-export const AICoachView: React.FC<AICoachViewProps> = ({ profile }) => {
+const AICoachView: React.FC<AICoachViewProps> = ({ profile }) => {
   const [activeTab, setActiveTab] = useState<'CHAT' | 'GRADER' | 'INTERVIEW'>('GRADER');
 
   const tabs = [
@@ -307,3 +319,5 @@ export const AICoachView: React.FC<AICoachViewProps> = ({ profile }) => {
     </div>
   );
 };
+
+export default AICoachView;

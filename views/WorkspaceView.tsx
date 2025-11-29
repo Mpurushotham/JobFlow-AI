@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, Building, MapPin, Edit3, ExternalLink, Target, FileText, MessageSquare, UserCircle, Sparkles, CheckCircle, XCircle, FileDown, History, StickyNote, CalendarPlus, Send, Trophy, Paperclip, XOctagon, Plus, Sun, Cloud, CloudRain, CloudSnow, Wind, RefreshCw } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -54,7 +55,7 @@ const getWeatherIcon = (description: string): React.ReactElement => {
 };
 
 
-export const WorkspaceView: React.FC<WorkspaceViewProps> = ({ 
+const WorkspaceView: React.FC<WorkspaceViewProps> = ({ 
   job, 
   profile, 
   onUpdateJob, 
@@ -82,8 +83,12 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
             if (weatherData) {
                 onUpdateJob({ ...job, weather: weatherData.description, temperature: weatherData.temperature });
             }
-        } catch (e) {
-            console.error("Weather fetch failed", e);
+        } catch (e: any) {
+            if (e.message !== 'RATE_LIMIT_EXCEEDED') {
+              console.error("Weather fetch failed", e);
+            } else {
+              addNotification("Weather API limit reached. Please wait a minute.", 'info');
+            }
         } finally {
             setIsFetchingWeather(false);
         }
@@ -116,8 +121,12 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
         analysis: JSON.stringify(result) 
       });
       addNotification('Match analysis complete!', 'success');
-    } catch (e) {
-      addNotification("Analysis failed. Please try again.", 'error');
+    } catch (e: any) {
+      if (e.message === 'RATE_LIMIT_EXCEEDED') {
+        addNotification("You've reached the free tier limit. Please wait a minute before trying again.", 'info');
+      } else {
+        addNotification("Analysis failed. Please try again.", 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -130,8 +139,12 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
       const tailored = await geminiService.tailorResume(profile.resumeContent, job.description);
       onUpdateJob({ ...job, tailoredResume: tailored });
       addNotification('Resume tailored successfully!', 'success');
-    } catch (e) {
-      addNotification("Failed to tailor resume.", 'error');
+    } catch (e: any) {
+      if (e.message === 'RATE_LIMIT_EXCEEDED') {
+        addNotification("You've reached the free tier limit. Please wait a minute before trying again.", 'info');
+      } else {
+        addNotification("Failed to tailor resume.", 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -150,8 +163,12 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
       );
       onUpdateJob({ ...job, coverLetter: letter });
       addNotification('Cover letter generated!', 'success');
-    } catch (e) {
-      addNotification("Failed to generate cover letter.", 'error');
+    } catch (e: any) {
+      if (e.message === 'RATE_LIMIT_EXCEEDED') {
+        addNotification("You've reached the free tier limit. Please wait a minute before trying again.", 'info');
+      } else {
+        addNotification("Failed to generate cover letter.", 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -164,8 +181,12 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
       const prep = await geminiService.generateInterviewPrep(profile.resumeContent, job.description);
       onUpdateJob({ ...job, interviewPrep: prep });
       addNotification('Interview prep guide is ready!', 'success');
-    } catch (e) {
-      addNotification("Failed to generate interview prep.", 'error');
+    } catch (e: any) {
+      if (e.message === 'RATE_LIMIT_EXCEEDED') {
+        addNotification("You've reached the free tier limit. Please wait a minute before trying again.", 'info');
+      } else {
+        addNotification("Failed to generate interview prep.", 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -618,3 +639,5 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
     </div>
   );
 };
+
+export default WorkspaceView;

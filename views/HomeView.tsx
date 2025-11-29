@@ -19,7 +19,7 @@ const getStartOfWeek = () => {
   return new Date(now.setDate(diff)).setHours(0, 0, 0, 0);
 };
 
-export const HomeView: React.FC<HomeViewProps> = ({ profile, jobs, onNavigate, onAddJob }) => {
+const HomeView: React.FC<HomeViewProps> = ({ profile, jobs, onNavigate, onAddJob }) => {
   const activeJobs = jobs.filter(j => j.status !== JobStatus.REJECTED && j.status !== JobStatus.OFFER);
   const interviews = jobs.filter(j => j.status === JobStatus.INTERVIEWING);
   
@@ -165,3 +165,5 @@ export const HomeView: React.FC<HomeViewProps> = ({ profile, jobs, onNavigate, o
     </div>
   );
 };
+
+export default HomeView;

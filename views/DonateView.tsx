@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Heart } from 'lucide-react';
 import { DonateModal } from '../components/DonateModal';
 
-export const DonateView = () => {
+const DonateView = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
 
     return (
@@ -35,3 +35,5 @@ export const DonateView = () => {
         </div>
     );
 };
+
+export default DonateView;

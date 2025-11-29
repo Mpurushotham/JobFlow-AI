@@ -13,7 +13,7 @@ interface InterviewEvent {
   activity: JobActivity;
 }
 
-export const InterviewsView: React.FC<InterviewsViewProps> = ({ jobs, onSelectJob }) => {
+const InterviewsView: React.FC<InterviewsViewProps> = ({ jobs, onSelectJob }) => {
   
   const interviewEvents = useMemo(() => {
     const allInterviews: InterviewEvent[] = [];
@@ -91,3 +91,5 @@ export const InterviewsView: React.FC<InterviewsViewProps> = ({ jobs, onSelectJo
     </div>
   );
 };
+
+export default InterviewsView;

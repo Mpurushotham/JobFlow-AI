@@ -1,4 +1,5 @@
 
+
 import React, { useState } from 'react';
 import { Search, MapPin, Building, ExternalLink, Plus, RotateCcw, Factory } from 'lucide-react';
 import { Job, JobStatus, SearchResult, SearchFilters } from '../types';
@@ -9,7 +10,7 @@ interface JobSearchViewProps {
   onAddJobFound: (job: Job) => void;
 }
 
-export const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound }) => {
+const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound }) => {
   const initialFilters: SearchFilters = {
     query: '',
     location: '',
@@ -37,9 +38,12 @@ export const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound }) =
     try {
       const { results } = await geminiService.searchJobs(filters);
       setResults(results);
-    } catch (e) {
-      console.error(e);
-      addNotification("Search failed. Please try again later.", 'error');
+    } catch (e: any) {
+      if (e.message === 'RATE_LIMIT_EXCEEDED') {
+        addNotification("You've reached the free tier limit. Please wait a minute before trying again.", 'info');
+      } else {
+        addNotification("Search failed. Please try again later.", 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -214,3 +218,5 @@ export const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound }) =
     </div>
   );
 };
+
+export default JobSearchView;

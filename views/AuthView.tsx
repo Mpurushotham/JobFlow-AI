@@ -12,7 +12,7 @@ interface AuthViewProps {
   onBack: () => void;
 }
 
-export const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack }) => {
+const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack }) => {
   const [authMode, setAuthMode] = useState(initialMode);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -208,3 +208,5 @@ export const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess,
     </div>
   );
 };
+
+export default AuthView;

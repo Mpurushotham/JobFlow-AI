@@ -1,4 +1,5 @@
 
+
 import React, { useEffect, useState } from 'react';
 import { Sparkles, Target, FileText, MessageSquare, PieChart, Lock, ArrowRight, Bot, Sun, Cloud, CloudRain, CloudSnow, Wind } from 'lucide-react';
 import { ThemeToggle } from '../components/ThemeToggle';
@@ -31,7 +32,7 @@ const getWeatherIcon = (description: string): React.ReactElement => {
 };
 
 
-export const WelcomeView: React.FC<WelcomeViewProps> = ({ onNavigateToAuth }) => {
+const WelcomeView: React.FC<WelcomeViewProps> = ({ onNavigateToAuth }) => {
   const [weatherData, setWeatherData] = useState<{ city: string; description: string; temperature: number } | null>(null);
 
   useEffect(() => {
@@ -42,8 +43,11 @@ export const WelcomeView: React.FC<WelcomeViewProps> = ({ onNavigateToAuth }) =>
           try {
             const data = await geminiService.getWeatherByCoords(latitude, longitude);
             setWeatherData(data);
-          } catch (error) {
-            console.error("Error fetching weather data:", error);
+          } catch (error: any) {
+            // Silently fail on rate limit, log other errors
+            if (error.message !== 'RATE_LIMIT_EXCEEDED') {
+                console.error("Error fetching weather data:", error);
+            }
           }
         },
         (error) => {
@@ -178,3 +182,5 @@ export const WelcomeView: React.FC<WelcomeViewProps> = ({ onNavigateToAuth }) =>
     </div>
   );
 };
+
+export default WelcomeView;

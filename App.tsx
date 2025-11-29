@@ -1,5 +1,5 @@
 // FIX: Corrected import statement for React and its hooks.
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 
 // Import types
 import { Job, UserProfile, ViewState } from './types';
@@ -20,21 +20,29 @@ import { ThemeToggle } from './components/ThemeToggle';
 import { Menu } from 'lucide-react';
 import { Toast } from './components/Toast';
 
-// Import views
-import { HomeView } from './views/HomeView';
-import { ProfileView } from './views/ProfileView';
-import { JobSearchView } from './views/JobSearchView';
-import { JobsView } from './views/JobsView';
-import { TrackerView } from './views/TrackerView';
-import { InterviewsView } from './views/InterviewsView';
-import { AnalyticsView } from './views/AnalyticsView';
-import { WorkspaceView } from './views/WorkspaceView';
-import { DonateView } from './views/DonateView';
-import { AICoachView } from './views/AICoachView';
-import { AuthView } from './views/AuthView';
-import { AdminView } from './views/AdminView';
-import { WelcomeView } from './views/WelcomeView';
-import { OnlinePresenceView } from './views/OnlinePresenceView';
+
+// --- Lazy Loaded Views ---
+const HomeView = lazy(() => import('./views/HomeView'));
+const ProfileView = lazy(() => import('./views/ProfileView'));
+const JobSearchView = lazy(() => import('./views/JobSearchView'));
+const JobsView = lazy(() => import('./views/JobsView'));
+const TrackerView = lazy(() => import('./views/TrackerView'));
+const InterviewsView = lazy(() => import('./views/InterviewsView'));
+const AnalyticsView = lazy(() => import('./views/AnalyticsView'));
+const WorkspaceView = lazy(() => import('./views/WorkspaceView'));
+const DonateView = lazy(() => import('./views/DonateView'));
+const AICoachView = lazy(() => import('./views/AICoachView'));
+const AuthView = lazy(() => import('./views/AuthView'));
+const AdminView = lazy(() => import('./views/AdminView'));
+const WelcomeView = lazy(() => import('./views/WelcomeView'));
+const OnlinePresenceView = lazy(() => import('./views/OnlinePresenceView'));
+
+// --- Suspense Fallback Loader ---
+const ViewLoader = () => (
+  <div className="w-full h-full flex items-center justify-center p-8">
+    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+  </div>
+);
 
 
 // --- Toast Notification Container ---
@@ -193,7 +201,9 @@ const AppContent: React.FC<{ onLogout: () => void; isAdmin: boolean; currentUser
         <div className="flex-1 overflow-auto custom-scrollbar flex flex-col">
           <div className="flex-1 p-4 md:p-8">
             <div className="max-w-7xl mx-auto h-full flex flex-col">
-              {renderView()}
+              <Suspense fallback={<ViewLoader />}>
+                {renderView()}
+              </Suspense>
             </div>
           </div>
           
@@ -281,22 +291,24 @@ const App: React.FC = () => {
   return (
     <ThemeProvider>
       <NotificationProvider>
-        {isAuthenticated && currentUser ? (
-          <AppContent onLogout={handleLogout} isAdmin={isAdmin} currentUser={currentUser} />
-        ) : (
-          <>
-            {authFlowState === 'welcome' && (
-              <WelcomeView onNavigateToAuth={(mode) => setAuthFlowState(mode)} />
-            )}
-            {(authFlowState === 'login' || authFlowState === 'signup') && (
-              <AuthView
-                initialMode={authFlowState}
-                onLoginSuccess={handleLoginSuccess}
-                onBack={() => setAuthFlowState('welcome')}
-              />
-            )}
-          </>
-        )}
+        <Suspense fallback={<div className="w-full h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center"><p className="text-slate-400 font-semibold animate-pulse">Loading Application...</p></div>}>
+          {isAuthenticated && currentUser ? (
+            <AppContent onLogout={handleLogout} isAdmin={isAdmin} currentUser={currentUser} />
+          ) : (
+            <>
+              {authFlowState === 'welcome' && (
+                <WelcomeView onNavigateToAuth={(mode) => setAuthFlowState(mode)} />
+              )}
+              {(authFlowState === 'login' || authFlowState === 'signup') && (
+                <AuthView
+                  initialMode={authFlowState}
+                  onLoginSuccess={handleLoginSuccess}
+                  onBack={() => setAuthFlowState('welcome')}
+                />
+              )}
+            </>
+          )}
+        </Suspense>
         <ToastContainer />
       </NotificationProvider>
     </ThemeProvider>

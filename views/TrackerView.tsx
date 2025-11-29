@@ -10,7 +10,7 @@ interface TrackerViewProps {
   onSelectJob: (j: Job) => void;
 }
 
-export const TrackerView: React.FC<TrackerViewProps> = ({ jobs, onSelectJob }) => {
+const TrackerView: React.FC<TrackerViewProps> = ({ jobs, onSelectJob }) => {
   return (
     <div className="flex flex-col h-full animate-fade-in max-w-full mx-auto">
       <div className="mb-6 flex justify-between items-end px-1">
@@ -119,3 +119,5 @@ export const TrackerView: React.FC<TrackerViewProps> = ({ jobs, onSelectJob }) =
     </div>
   );
 };
+
+export default TrackerView;

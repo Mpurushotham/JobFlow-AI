@@ -11,7 +11,7 @@ interface JobsViewProps {
   onUpdateJob: (j: Job) => void;
 }
 
-export const JobsView: React.FC<JobsViewProps> = ({ 
+const JobsView: React.FC<JobsViewProps> = ({ 
   jobs, 
   onSelectJob, 
   onAddJob, 
@@ -153,3 +153,5 @@ export const JobsView: React.FC<JobsViewProps> = ({
     </div>
   );
 };
+
+export default JobsView;

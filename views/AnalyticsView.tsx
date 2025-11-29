@@ -16,7 +16,7 @@ interface AnalyticsViewProps {
   jobs: Job[];
 }
 
-export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs }) => {
+const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs }) => {
   const statusCounts = Object.values(JobStatus).map(status => ({
     name: STATUS_LABELS[status],
     value: jobs.filter(j => j.status === status).length
@@ -86,3 +86,5 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ jobs }) => {
     </div>
   );
 };
+
+export default AnalyticsView;

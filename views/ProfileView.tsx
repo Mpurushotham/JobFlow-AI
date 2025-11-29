@@ -1,4 +1,5 @@
 
+
 import React, { useState } from 'react';
 import { UserProfile } from '../types';
 import { UserCircle, Mail, Phone, MapPin, Link as LinkIcon, Briefcase, FileText, Sparkles, Save, Edit2, Github, Globe, RefreshCcw } from 'lucide-react';
@@ -10,7 +11,7 @@ interface ProfileViewProps {
   onSave: (p: UserProfile) => void;
 }
 
-export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave }) => {
+const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave }) => {
   const [formData, setFormData] = useState(profile);
   const [isEditing, setIsEditing] = useState(false);
   const [parsing, setParsing] = useState(false);
@@ -63,8 +64,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave }) => 
         parsedData: parsed
       }));
       addNotification("Auto-filled contact details from resume!", 'success');
-    } catch (e) {
-      addNotification("Failed to parse resume. The format might be too complex.", 'error');
+    } catch (e: any) {
+      if (e.message === 'RATE_LIMIT_EXCEEDED') {
+        addNotification("You've reached the free tier limit. Please wait a minute before trying again.", 'info');
+      } else {
+        addNotification("Failed to parse resume. The format might be too complex.", 'error');
+      }
     } finally {
       setParsing(false);
     }
@@ -234,3 +239,5 @@ export const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave }) => 
     </div>
   );
 };
+
+export default ProfileView;

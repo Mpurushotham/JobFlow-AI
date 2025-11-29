@@ -10,7 +10,7 @@ interface OnlinePresenceViewProps {
   profile: UserProfile;
 }
 
-export const OnlinePresenceView: React.FC<OnlinePresenceViewProps> = ({ profile }) => {
+const OnlinePresenceView: React.FC<OnlinePresenceViewProps> = ({ profile }) => {
   const [activeTab, setActiveTab] = useState<'linkedin' | 'networking'>('linkedin');
   
   // LinkedIn State
@@ -37,8 +37,12 @@ export const OnlinePresenceView: React.FC<OnlinePresenceViewProps> = ({ profile 
     try {
       const result = await geminiService.optimizeLinkedInProfile(linkedInMode, currentText, profile);
       setOptimizedText(result);
-    } catch (e) {
-      addNotification(`Failed to optimize LinkedIn ${linkedInMode}.`, 'error');
+    } catch (e: any) {
+      if (e.message === 'RATE_LIMIT_EXCEEDED') {
+        addNotification("You've reached the free tier limit. Please wait a minute before trying again.", 'info');
+      } else {
+        addNotification(`Failed to optimize LinkedIn ${linkedInMode}.`, 'error');
+      }
     } finally {
       setLoadingLinkedIn(false);
     }
@@ -54,8 +58,12 @@ export const OnlinePresenceView: React.FC<OnlinePresenceViewProps> = ({ profile 
     try {
       const result = await geminiService.draftNetworkingMessage(scenario, recipient, profile);
       setDraftedMessage(result);
-    } catch (e) {
-      addNotification("Failed to draft networking message.", 'error');
+    } catch (e: any) {
+      if (e.message === 'RATE_LIMIT_EXCEEDED') {
+        addNotification("You've reached the free tier limit. Please wait a minute before trying again.", 'info');
+      } else {
+        addNotification("Failed to draft networking message.", 'error');
+      }
     } finally {
       setLoadingNetworking(false);
     }
@@ -145,3 +153,5 @@ export const OnlinePresenceView: React.FC<OnlinePresenceViewProps> = ({ profile 
     </div>
   );
 };
+
+export default OnlinePresenceView;
