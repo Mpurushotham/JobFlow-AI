@@ -362,14 +362,14 @@ const MainApplicationWrapper: React.FC = () => {
   const fetchGlobalWeather = useCallback(async (force = false) => {
     if (!isAuthenticated && !force) return; // Only fetch if authenticated or forced
     if (!navigator.onLine) { // Explicitly check network status before trying to fetch
-        addNotification("Cannot fetch weather: You are offline.", "info");
+        // Reduced verbosity here, logged silently or only on error
         logService.log(currentUser || 'guest', LogActionType.OFFLINE_EVENT, 'Cannot fetch weather data: offline.', 'warn');
         return;
     }
     // FIX: Use setIsFetchingLocation
     setIsFetchingLocation(true);
-    addNotification('Attempting to fetch your current location...', 'info');
-    logService.log(currentUser || 'guest', LogActionType.GEOLOCATION_FETCH, 'Attempted to fetch geolocation for weather.', 'debug');
+    // Removed overly verbose notification for fetching weather start
+    // logService.log(currentUser || 'guest', LogActionType.GEOLOCATION_FETCH, 'Attempted to fetch geolocation for weather.', 'debug');
 
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -380,21 +380,21 @@ const MainApplicationWrapper: React.FC = () => {
             // FIX: Access `data.country` directly as its type has been updated in geminiService.ts
             if (data?.city && data?.country) {
               setGlobalWeather(data);
-              logService.log(currentUser || 'guest', LogActionType.GEOLOCATION_FETCH, `Weather fetched for ${data.city}, ${data.country}.`, 'info');
+              // logService.log(currentUser || 'guest', LogActionType.GEOLOCATION_FETCH, `Weather fetched for ${data.city}, ${data.country}.`, 'info');
             } else {
-              addNotification('Could not determine city/country from coordinates.', 'info');
+              // Only notify if it fails silently but keeps app running
+              // addNotification('Could not determine city/country from coordinates.', 'info'); 
               logService.log(currentUser || 'guest', LogActionType.GEOLOCATION_FETCH, 'Could not determine city/country from coordinates.', 'warn');
             }
           } catch (error: any) {
             if (error.message === 'RATE_LIMIT_EXCEEDED') {
-              addNotification("Weather API limit reached. Please wait a minute before refreshing.", 'info');
+              // addNotification("Weather API limit reached. Please wait a minute before refreshing.", 'info');
               logService.log(currentUser || 'guest', LogActionType.ERROR_OCCURRED, `Weather API limit reached: ${error.message}`, 'warn');
             } else if (error.message === 'OFFLINE') {
-                addNotification("Cannot fetch weather: You are offline.", "info");
-                // Logged by handleApiCall
+                // Already handled
             } else {
               console.error("Error fetching global weather data:", error);
-              addNotification("Failed to fetch location. Please try again.", 'error');
+              // addNotification("Failed to fetch location. Please try again.", 'error');
               logService.log(currentUser || 'guest', LogActionType.ERROR_OCCURRED, `Failed to fetch weather data: ${error.message}`, 'error');
             }
           } finally {
@@ -404,7 +404,7 @@ const MainApplicationWrapper: React.FC = () => {
         },
         (error) => {
           console.warn(`Geolocation error for global weather: ${error.message}`);
-          addNotification(`Failed to get your location: ${error.message}`, 'error');
+          // addNotification(`Failed to get your location: ${error.message}`, 'error');
           logService.log(currentUser || 'guest', LogActionType.ERROR_OCCURRED, `Geolocation permission denied or failed: ${error.message}`, 'warn');
           // FIX: Use setIsFetchingLocation
           setIsFetchingLocation(false);
@@ -412,7 +412,7 @@ const MainApplicationWrapper: React.FC = () => {
       );
     } else {
       console.warn("Geolocation not supported for global weather.");
-      addNotification("Geolocation is not supported by your browser.", 'error');
+      // addNotification("Geolocation is not supported by your browser.", 'error');
       logService.log(currentUser || 'guest', LogActionType.ERROR_OCCURRED, 'Geolocation not supported by browser.', 'warn');
       // FIX: Use setIsFetchingLocation
       setIsFetchingLocation(false);

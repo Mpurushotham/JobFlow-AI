@@ -1,6 +1,4 @@
 
-
-
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 // FIX: Added RefreshCcw import from 'lucide-react'.
 import { Search, MapPin, Building, ExternalLink, Plus, RotateCcw, Factory, Briefcase, AlertTriangle, ChevronLeft, ChevronRight, Sparkles, CheckCircle, XCircle, Info, RefreshCcw, TrendingUp } from 'lucide-react';
@@ -28,9 +26,10 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
     experienceLevel: 'any',
     jobType: 'any',
     remote: 'any',
-    industry: '',
-    salaryRange: 'any', // New filter
-    seniority: 'any',    // New filter
+    companySize: 'any', 
+    educationLevel: 'any', 
+    salaryRange: 'any', 
+    seniority: 'any',
   };
 
   const [filters, setFilters] = useState<SearchFilters>(initialFilters);
@@ -79,7 +78,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
       return;
     }
     setLoading(true);
-    setLoadingMessage("AI is searching for specific jobs...");
+    setLoadingMessage("AI is scanning LinkedIn, Indeed, and other sources...");
     setAllSearchResults([]); // Clear previous results
     setFallbackActive(false); // Reset fallback status
     setCurrentPage(1); // Reset to first page
@@ -199,7 +198,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
       return;
     }
     setIsFetchingLocation(true);
-    addNotification('Attempting to fetch your current location...', 'info');
+    // Removed specific toast for starting fetch to reduce noise
     logService.log(currentUser, LogActionType.GEOLOCATION_FETCH, 'Attempted to fetch current location.', 'info');
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -210,20 +209,20 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
             // FIX: Access `data.country` directly as its type has been updated in geminiService.ts
             if (data?.city && data?.country) {
               handleFilterChange('location', `${data.city}, ${data.country}`);
-              addNotification(`Location set to ${data.city}, ${data.country}`, 'success');
+              // Removed specific toast for success
               logService.log(currentUser, LogActionType.GEOLOCATION_FETCH, `Location set to ${data.city}, ${data.country}.`, 'info');
             } else {
-              addNotification('Could not determine city/country from coordinates.', 'info');
+              // addNotification('Could not determine city/country from coordinates.', 'info');
               logService.log(currentUser, LogActionType.GEOLOCATION_FETCH, 'Could not determine city/country from coordinates.', 'warn');
             }
           } catch (error: any) {
             if (error.message === 'RATE_LIMIT_EXCEEDED') {
-              addNotification("Location API limit reached. Please wait a minute before trying again.", 'info');
+              // addNotification("Location API limit reached. Please wait a minute before trying again.", 'info');
             } else if (error.message === 'OFFLINE') {
-              addNotification("Cannot fetch location: You are offline.", "info");
+              // addNotification("Cannot fetch location: You are offline.", "info");
             } else {
               console.error("Error fetching location data:", error);
-              addNotification("Failed to fetch location. Please try again.", 'error');
+              // addNotification("Failed to fetch location. Please try again.", 'error');
             }
             logService.log(currentUser, LogActionType.ERROR_OCCURRED, `Failed to fetch location data: ${error.message}`, 'error');
           } finally {
@@ -236,7 +235,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
             addNotification("Geolocation permission denied. Please enable location services for this site.", 'error');
             logService.log(currentUser, LogActionType.ERROR_OCCURRED, 'Geolocation permission denied.', 'warn');
           } else {
-            addNotification(`Failed to get your location: ${error.message}`, 'error');
+            // addNotification(`Failed to get your location: ${error.message}`, 'error');
             logService.log(currentUser, LogActionType.ERROR_OCCURRED, `Failed to get geolocation: ${error.message}`, 'error');
           }
           setIsFetchingLocation(false);
@@ -264,7 +263,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
       <div className="flex justify-between items-center mb-6 px-1">
         <div>
           <h2 className="text-3xl font-bold text-gray-800 dark:text-white">Job Search</h2>
-          <p className="text-gray-500 dark:text-slate-400 mt-1">Find new opportunities with AI-powered search.</p>
+          <p className="text-gray-500 dark:text-slate-400 mt-1">Find new opportunities with AI-powered search across the web.</p>
         </div>
         <button
           onClick={handleResetFilters}
@@ -340,20 +339,23 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
               )}
             </div>
           </div>
+          {/* New Filter: Company Size */}
           <div>
-            <label htmlFor="industry" className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-2">Industry</label>
-            <div className="relative">
-              <Factory size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" aria-hidden="true" />
-              <input
-                id="industry"
-                type="text"
-                value={filters.industry}
-                onChange={e => handleFilterChange('industry', e.target.value)}
-                className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-                placeholder="e.g. Tech, Finance"
-                aria-label="Industry filter"
-              />
-            </div>
+            <label htmlFor="companySize" className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-2">Company Size</label>
+            <select
+              id="companySize"
+              value={filters.companySize}
+              onChange={e => handleFilterChange('companySize', e.target.value as any)}
+              className="w-full p-3 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+              aria-label="Company size filter"
+            >
+              <option value="any">Any Size</option>
+              <option value="startup">Startup</option>
+              <option value="small">Small Business</option>
+              <option value="mid">Mid-Sized</option>
+              <option value="large">Large Corp</option>
+              <option value="mnc">MNC</option>
+            </select>
           </div>
 
           <div>
@@ -371,6 +373,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
               <option value="month">Past month</option>
             </select>
           </div>
+          
           <div>
             <label htmlFor="experienceLevel" className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-2">Experience Level</label>
             <select
@@ -388,6 +391,25 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
               <option value="director">Director</option>
             </select>
           </div>
+          
+          {/* New Filter: Education Level */}
+          <div>
+            <label htmlFor="educationLevel" className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-2">Education Level</label>
+            <select
+              id="educationLevel"
+              value={filters.educationLevel}
+              onChange={e => handleFilterChange('educationLevel', e.target.value as any)}
+              className="w-full p-3 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+              aria-label="Education level filter"
+            >
+              <option value="any">Any</option>
+              <option value="high_school">High School</option>
+              <option value="bachelors">Bachelor's</option>
+              <option value="masters">Master's</option>
+              <option value="phd">PhD</option>
+            </select>
+          </div>
+
           <div>
             <label htmlFor="jobType" className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-2">Job Type</label>
             <select
@@ -473,7 +495,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
           <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">Search Results ({allSearchResults.length}{subscriptionTier === SubscriptionTier.FREE ? ` (showing first ${freeTierSearchLimit})` : ''})</h3>
           <p className="text-sm text-gray-500 dark:text-slate-400 mb-4 flex items-center gap-2" role="status">
             <Info size={16} className="text-indigo-400 flex-shrink-0" aria-hidden="true" />
-            Job links are dynamic and may expire. "Date Posted" and "Application Deadline" are not available for generic search results.
+            Job links are dynamic and may expire. Data is aggregated from various sources.
           </p>
           
           {fallbackActive && (
@@ -500,7 +522,8 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
                     <th scope="col" className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700 w-1/4">Role</th>
                     <th scope="col" className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700 w-1/6">Company</th>
                     <th scope="col" className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700 w-1/6">Location</th>
-                    <th scope="col" className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700 w-1/4">Description</th>
+                    <th scope="col" className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700">Posted</th>
+                    <th scope="col" className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700">Source</th>
                     <th scope="col" className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700">Link</th>
                     <th scope="col" className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700">AI Match</th>
                     <th scope="col" className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700">Actions</th>
@@ -520,6 +543,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
                         <td className="p-4 text-sm text-gray-500 dark:text-slate-500 font-medium">{(currentPage - 1) * jobsPerPage + idx + 1}</td>
                         <td className="p-4">
                           <div className="font-bold text-gray-800 dark:text-white line-clamp-2">{res.title}</div>
+                          <div className="text-xs text-gray-500 dark:text-slate-400 line-clamp-1 mt-1">{res.summary}</div>
                         </td>
                         <td className="p-4 text-sm text-gray-700 dark:text-slate-300 font-medium">
                           <div className="flex items-center gap-2">
@@ -532,8 +556,11 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
                         <td className="p-4 text-sm text-gray-600 dark:text-slate-400">
                           <span className="bg-gray-100 dark:bg-slate-700 text-gray-600 dark:text-slate-300 px-2 py-0.5 rounded text-xs">{res.location || '-'}</span>
                         </td>
-                        <td className="p-4 text-sm text-gray-700 dark:text-slate-400">
-                          <p className="line-clamp-3" title={res.summary}>{res.summary}</p>
+                        <td className="p-4 text-sm text-gray-600 dark:text-slate-400 font-medium whitespace-nowrap">
+                            {res.postedDate || '-'}
+                        </td>
+                        <td className="p-4 text-sm text-gray-600 dark:text-slate-400 font-medium whitespace-nowrap">
+                            {res.source || '-'}
                         </td>
                         <td className="p-4">
                           {hasValidUrl ? (
@@ -589,7 +616,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
                                 status: JobStatus.WISHLIST,
                                 dateAdded: Date.now(),
                                 url: res.url,
-                                source: 'AI Search',
+                                source: res.source || 'AI Search',
                                 matchScore: res.matchScore, // Carry over analysis if already done
                                 analysis: res.analysis,
                               });

@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
-import { Sparkles, KeyRound, Lock, User, LogIn, ShieldCheck, Mail, Phone, ArrowLeft, RefreshCw, CheckCircle, Smartphone, ArrowRight } from 'lucide-react';
+import { Sparkles, KeyRound, Lock, User, LogIn, ShieldCheck, Mail, Phone, ArrowLeft, RefreshCw, CheckCircle, ArrowRight } from 'lucide-react';
 import { authService } from '../services/authService';
 import { useNotifications } from '../context/NotificationContext';
 import { SubscriptionTier, LogActionType } from '../types'; // Import SubscriptionTier and LogActionType
@@ -16,8 +17,6 @@ interface AuthViewProps {
   setAuthFlowState: (state: 'welcome' | 'login' | 'signup' | 'forgot_credentials' | 'otp_verify') => void; // Added setAuthFlowState
 }
 
-const OTP_SESSION_KEY = 'jobflow_signup_otp'; // New: Key for storing OTP in sessionStorage
-
 const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack, authFlowState, setAuthFlowState }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -28,26 +27,12 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
   
   const [loginStep, setLoginStep] = useState(1); // 1 for pass, 2 for pin
   const [resetStep, setResetStep] = useState(1); // 1 for verify, 2 for new credentials
-  // REMOVED: [simulatedOtp, setSimulatedOtp] - now using sessionStorage
-  const [otpInput, setOtpInput] = useState(''); // User entered OTP
   
   const [error, setError] = useState('');
   const [emailError, setEmailError] = useState<string | null>(null);
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [pinInputError, setPinInputError] = useState<string | null>(null); // For PIN in signup/reset
   const { addNotification } = useNotifications();
-
-  const generateNewOtp = () => {
-    const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    sessionStorage.setItem(OTP_SESSION_KEY, generatedOtp); // Store in sessionStorage
-    logService.log('guest', LogActionType.OTP_GENERATED, `OTP generated for signup for user ${username.trim()}.`, 'info');
-    addNotification(
-      <span className="flex items-center gap-2">
-        Your OTP: <span className="text-xl font-extrabold text-indigo-600 dark:text-indigo-300 tracking-widest">{generatedOtp}</span>
-      </span>, 
-      'info'
-    );
-  };
 
   // Reset states when switching between login/signup/forgot
   useEffect(() => {
@@ -63,9 +48,6 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
     setEmail('');
     setPhone('');
     setConfirmPassword('');
-    // Clear OTP from session storage and input
-    sessionStorage.removeItem(OTP_SESSION_KEY); 
-    setOtpInput('');
   }, [authFlowState]);
 
   const handleEmailChange = (value: string, validateNow: boolean = false) => {
@@ -153,7 +135,6 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
       logService.log('guest', LogActionType.USER_SIGNUP, 'Signup failed: Contact information validation errors.', 'warn');
       return setError("Please correct the errors in your contact information.");
     }
-    // FIX: Added explicit non-empty validation for email and phone.
     if (!trimmedEmail) {
       logService.log('guest', LogActionType.USER_SIGNUP, 'Signup failed: Email Address is required.', 'warn');
         return setError("Email Address is required for signup.");
@@ -163,43 +144,12 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
         return setError("Phone Number is required for signup.");
     }
     
-    // Simulate OTP generation
-    generateNewOtp(); // Generate and display OTP, store in sessionStorage
-    setAuthFlowState('otp_verify');
-    logService.log('guest', LogActionType.USER_SIGNUP, `Signup process initiated for user: ${trimmedUsername}, waiting for OTP verification.`, 'info');
-  };
-
-  const handleOtpVerification = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    
-    const expectedOtp = sessionStorage.getItem(OTP_SESSION_KEY); // Retrieve from sessionStorage
-    const trimmedOtpInput = otpInput.trim();
-    const trimmedUsername = username.trim(); // Ensure username is trimmed for signup
-
-    // Log details for debugging OTP flow
-    console.log("OTP Verification Attempt:");
-    console.log("  Entered OTP:", trimmedOtpInput);
-    console.log("  Expected OTP (from session):", expectedOtp);
-    // FIX: Added more detailed logging for user details before signup.
-    console.log("  User details for signup attempt:", {
-      username: trimmedUsername,
-      password: password.trim().slice(0, 3) + '...', // Mask password for security
-      pin: pin.trim().slice(0, 1) + '...',         // Mask PIN for security
-      email: email.trim(),
-      phone: phone.trim()
-    });
-
-    // Clear OTP from session storage and input after attempt
-    sessionStorage.removeItem(OTP_SESSION_KEY); 
-    setOtpInput(''); 
-
-    // FIX: Trim both OTPs before comparison to avoid whitespace issues.
-    if (trimmedOtpInput === expectedOtp?.trim()) {
-        const signupSuccess = await authService.signup(trimmedUsername, password.trim(), pin.trim(), email.trim(), phone.trim());
-        console.log("authService.signup result:", signupSuccess); 
+    // DIRECT SIGNUP (Removed OTP Simulator)
+    try {
+        const signupSuccess = await authService.signup(trimmedUsername, trimmedPassword, trimmedPin, trimmedEmail, trimmedPhone);
+        
         if (signupSuccess) {
-            logService.log(trimmedUsername, LogActionType.OTP_VERIFIED, 'OTP verified successfully and user signed up.', 'info');
+            logService.log(trimmedUsername, LogActionType.USER_SIGNUP, 'User signed up successfully.', 'info');
             addNotification(
                 <span className="flex items-center gap-2">
                     Congratulations! <span className="text-xl font-extrabold">Welcome to JobFlow AI!</span> ✨
@@ -207,7 +157,6 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
                 'success'
             );
             // Automatically log in the newly created user
-            // THIS IS THE KEY PART FOR IMMEDIATE LOGIN
             onLoginSuccess(trimmedUsername, false, SubscriptionTier.FREE); 
         } else {
             // This means signup failed due to username already existing
@@ -215,9 +164,9 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
             setAuthFlowState('login'); // Redirect to login for existing username
             logService.log(trimmedUsername, LogActionType.USER_SIGNUP, 'Signup failed: Username already exists.', 'warn');
         }
-    } else {
-        setError('Invalid OTP. Please try again.');
-        logService.log(trimmedUsername, LogActionType.OTP_VERIFIED, `OTP verification failed: Invalid OTP entered.`, 'warn');
+    } catch (e: any) {
+        setError('Signup failed due to an error. Please try again.');
+        logService.log('guest', LogActionType.ERROR_OCCURRED, `Signup exception: ${e.message}`, 'error');
     }
   };
 
@@ -413,33 +362,6 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
     </form>
   );
 
-  const renderOtpVerificationForm = () => (
-    <form onSubmit={handleOtpVerification} className="space-y-6 animate-fade-in">
-        <h2 className="text-3xl font-bold text-center text-gray-800 dark:text-white">Verify Your Account</h2>
-        <p className="text-center text-sm text-gray-500 dark:text-slate-400">
-            A simulated OTP has been sent. Please enter it to complete signup.
-        </p>
-        {error && <p className="text-red-500 bg-red-50 dark:bg-red-900/20 p-3 rounded-lg text-center text-sm">{error}</p>}
-
-        <div>
-            <label className="text-sm font-bold text-gray-600 dark:text-slate-400">OTP</label>
-            <div className="relative mt-2">
-                <Smartphone size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input type="text" value={otpInput} onChange={e => setOtpInput(e.target.value.trim())} maxLength={6} required autoFocus className="w-full pl-12 pr-4 py-3 tracking-widest bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
-            </div>
-        </div>
-        <button type="submit" className="w-full py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2">
-            Verify <CheckCircle size={18} />
-        </button>
-         <p className="text-center text-sm">
-            Didn't receive OTP?{' '}
-            <button type="button" onClick={generateNewOtp} className="font-bold text-indigo-600 hover:underline">
-              Resend OTP
-            </button>
-          </p>
-    </form>
-  );
-
   const renderForgotCredentialsForm = () => (
     <div className="space-y-6 animate-fade-in">
         <h2 className="text-3xl font-bold text-center text-gray-800 dark:text-white">Reset Credentials</h2>
@@ -545,12 +467,10 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
         return renderLoginForm();
       case 'signup':
         return renderSignupForm();
-      case 'otp_verify':
-        return renderOtpVerificationForm();
       case 'forgot_credentials':
         return renderForgotCredentialsForm();
       default:
-        return null; // Should not happen
+        return null; 
     }
   };
 

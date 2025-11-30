@@ -4,7 +4,7 @@ import { UserProfile, Job, User, SubscriptionTier, AppBackupData, AppActivityLog
 import { storageService } from '../services/storageService';
 import { authService } from '../services/authService';
 import { logService } from '../services/logService'; // Import logService
-import { KeyRound, Eye, Trash2, User as UserIcon, Briefcase, AlertTriangle, X, ShieldCheck, Lock, TrendingUp, ChevronDown, Mail, Phone, DownloadCloud, UploadCloud, RefreshCw, History, Filter, Search } from 'lucide-react'; // Added DownloadCloud, UploadCloud, RefreshCw, History, Filter, Search
+import { KeyRound, Eye, Trash2, User as UserIcon, Briefcase, AlertTriangle, X, ShieldCheck, Lock, TrendingUp, ChevronDown, Mail, Phone, DownloadCloud, UploadCloud, RefreshCw, History, Filter, Search, Globe, Monitor, MapPin, Cookie } from 'lucide-react'; // Added Globe, Monitor, MapPin, Cookie
 import { useNotifications } from '../context/NotificationContext';
 import { CountryCodeInput } from '../components/CountryCodeInput';
 import { isValidEmail, isValidPin } from '../utils/validationUtils';
@@ -109,6 +109,49 @@ const DataViewerModal: React.FC<{ title: string; data: any; onClose: () => void;
     </div>
 );
 
+const LogDetailsModal: React.FC<{ log: AppActivityLogEntry; onClose: () => void; }> = ({ log, onClose }) => (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="log-details-title">
+        <div className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-lg p-6 shadow-xl">
+            <div className="flex justify-between items-center mb-4">
+                <h3 id="log-details-title" className="text-lg font-bold text-gray-800 dark:text-white">Activity Log Details</h3>
+                <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-full" aria-label="Close log details"><X size={18} /></button>
+            </div>
+            <div className="space-y-4">
+                <div className="flex items-center gap-2 text-sm">
+                    <span className={`px-2 py-1 rounded-full text-xs font-bold uppercase ${
+                        log.severity === 'error' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                        log.severity === 'warn' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                        log.severity === 'info' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
+                        'bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-slate-300'
+                    }`}>{log.severity}</span>
+                    <span className="text-gray-500 dark:text-slate-400 font-mono">{new Date(log.timestamp).toLocaleString()}</span>
+                </div>
+                <div>
+                    <p className="text-sm font-bold text-gray-700 dark:text-slate-300">Action:</p>
+                    <p className="text-sm text-gray-600 dark:text-slate-400">{log.actionType}</p>
+                </div>
+                <div>
+                    <p className="text-sm font-bold text-gray-700 dark:text-slate-300">Description:</p>
+                    <p className="text-sm text-gray-600 dark:text-slate-400 bg-gray-50 dark:bg-slate-900 p-2 rounded-lg">{log.details}</p>
+                </div>
+                
+                {log.metadata && (
+                    <div className="border-t border-gray-100 dark:border-slate-700 pt-4 mt-4">
+                        <p className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-2">Client Metadata</p>
+                        <div className="grid grid-cols-1 gap-2 text-xs text-gray-600 dark:text-slate-400">
+                            {log.metadata.ipAddress && <div className="flex items-center gap-2"><Globe size={12} className="text-indigo-500"/> IP Address: {log.metadata.ipAddress}</div>}
+                            {log.metadata.location && <div className="flex items-center gap-2"><MapPin size={12} className="text-indigo-500"/> URL: <span className="truncate">{log.metadata.location}</span></div>}
+                            {log.metadata.userAgent && <div className="flex items-start gap-2"><Monitor size={12} className="text-indigo-500 mt-0.5"/> User Agent: <span className="break-all">{log.metadata.userAgent}</span></div>}
+                            {log.metadata.screenResolution && <div className="flex items-center gap-2"><Monitor size={12} className="text-indigo-500"/> Res: {log.metadata.screenResolution}</div>}
+                            {log.metadata.cookies && <div className="flex items-start gap-2"><Cookie size={12} className="text-indigo-500 mt-0.5"/> Cookies: <span className="break-all">{log.metadata.cookies}</span></div>}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    </div>
+);
+
 
 const AdminView: React.FC<AdminViewProps> = ({ currentUserSubscriptionTier, currentUser }) => { // Accept current admin's tier and currentUser
     const [activeTab, setActiveTab] = useState<'users' | 'logs'>('users'); // New state for tabs
@@ -121,8 +164,10 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUserSubscriptionTier, curr
     const [logFilterUser, setLogFilterUser] = useState('all');
     const [logSearchTerm, setLogSearchTerm] = useState('');
 
-    const [modal, setModal] = useState<'reset' | 'viewProfile' | 'viewJobs' | null>(null);
+    const [modal, setModal] = useState<'reset' | 'viewProfile' | 'viewJobs' | 'viewLogDetails' | null>(null);
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
+    const [selectedLog, setSelectedLog] = useState<AppActivityLogEntry | null>(null);
+
     const { addNotification } = useNotifications();
     const fileInputRef = useRef<HTMLInputElement>(null); // Ref for file input
 
@@ -195,6 +240,11 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUserSubscriptionTier, curr
     const openModal = (type: 'reset' | 'viewProfile' | 'viewJobs', user: User) => {
         setSelectedUser(user);
         setModal(type);
+    };
+
+    const openLogDetails = (log: AppActivityLogEntry) => {
+        setSelectedLog(log);
+        setModal('viewLogDetails');
     };
 
     // --- Admin Backup/Restore Handlers ---
@@ -473,16 +523,17 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUserSubscriptionTier, curr
                                     <th scope="col" className="p-3 text-xs font-bold text-gray-500 dark:text-slate-400 uppercase">Action Type</th>
                                     <th scope="col" className="p-3 text-xs font-bold text-gray-500 dark:text-slate-400 uppercase">Details</th>
                                     <th scope="col" className="p-3 text-xs font-bold text-gray-500 dark:text-slate-400 uppercase">Severity</th>
+                                    <th scope="col" className="p-3 text-xs font-bold text-gray-500 dark:text-slate-400 uppercase text-center">Meta</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
                                 {filteredLogs.length > 0 ? (
                                     filteredLogs.map(log => (
-                                        <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-slate-700/50">
+                                        <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-slate-700/50 cursor-pointer" onClick={() => openLogDetails(log)}>
                                             <td className="p-3 text-sm text-gray-800 dark:text-white">{new Date(log.timestamp).toLocaleString()}</td>
                                             <td className="p-3 text-sm text-gray-700 dark:text-slate-300">{log.username}</td>
                                             <td className="p-3 text-sm text-indigo-600 dark:text-indigo-400 font-medium">{log.actionType}</td>
-                                            <td className="p-3 text-sm text-gray-600 dark:text-slate-300 max-w-sm truncate" title={log.details}>{log.details}</td>
+                                            <td className="p-3 text-sm text-gray-600 dark:text-slate-300 max-w-xs truncate" title={log.details}>{log.details}</td>
                                             <td className="p-3 text-sm">
                                                 <span className={`px-2 py-1 rounded-full text-xs font-bold uppercase ${
                                                     log.severity === 'error' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
@@ -493,11 +544,14 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUserSubscriptionTier, curr
                                                     {log.severity}
                                                 </span>
                                             </td>
+                                            <td className="p-3 text-center">
+                                                <button onClick={(e) => { e.stopPropagation(); openLogDetails(log); }} className="text-gray-400 hover:text-indigo-500"><Eye size={16}/></button>
+                                            </td>
                                         </tr>
                                     ))
                                 ) : (
                                     <tr>
-                                        <td colSpan={5} className="text-center py-10 text-gray-400 dark:text-slate-500">
+                                        <td colSpan={6} className="text-center py-10 text-gray-400 dark:text-slate-500">
                                             No activity logs found for the current filters.
                                         </td>
                                     </tr>
@@ -509,11 +563,12 @@ const AdminView: React.FC<AdminViewProps> = ({ currentUserSubscriptionTier, curr
             )}
 
 
-            {modal && selectedUser && (
+            {modal && (
                 <>
-                    {modal === 'reset' && <ResetPasswordModal user={selectedUser} onClose={() => setModal(null)} onSave={loadData} />}
-                    {modal === 'viewProfile' && <DataViewerModal title={`${selectedUser.username}'s Profile`} data={profiles[selectedUser.username] || {}} onClose={() => setModal(null)} />}
-                    {modal === 'viewJobs' && <DataViewerModal title={`${selectedUser.username}'s Jobs`} data={jobs[selectedUser.username] || []} onClose={() => setModal(null)} />}
+                    {modal === 'reset' && selectedUser && <ResetPasswordModal user={selectedUser} onClose={() => setModal(null)} onSave={loadData} />}
+                    {modal === 'viewProfile' && selectedUser && <DataViewerModal title={`${selectedUser.username}'s Profile`} data={profiles[selectedUser.username] || {}} onClose={() => setModal(null)} />}
+                    {modal === 'viewJobs' && selectedUser && <DataViewerModal title={`${selectedUser.username}'s Jobs`} data={jobs[selectedUser.username] || []} onClose={() => setModal(null)} />}
+                    {modal === 'viewLogDetails' && selectedLog && <LogDetailsModal log={selectedLog} onClose={() => setModal(null)} />}
                 </>
             )}
 

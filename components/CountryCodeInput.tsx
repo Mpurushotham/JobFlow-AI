@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Phone } from 'lucide-react';
 import { countryData, CountryData } from '../utils/countryData'; // Import comprehensive country data
+import { isValidPhoneNumber } from '../utils/validationUtils';
 
 interface CountryCodeInputProps {
   value: string; // Expected format: "+[countryCode][phoneNumber]" or just "[phoneNumber]"
@@ -9,11 +10,6 @@ interface CountryCodeInputProps {
   onBlur?: (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>) => void; // FIX: Changed onBlur prop type
   error?: string | null;
 }
-
-const isValidPhoneNumber = (phoneNumber: string): boolean => {
-  // Basic validation: must be digits, optional +, min 7 digits (global standard approximation)
-  return /^\+?[0-9]{7,15}$/.test(phoneNumber);
-};
 
 export const CountryCodeInput: React.FC<CountryCodeInputProps> = ({ value, onChange, disabled, onBlur, error }) => {
   const [selectedCode, setSelectedCode] = useState('+1');

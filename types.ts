@@ -1,5 +1,4 @@
 
-
 export enum JobStatus {
   WISHLIST = 'WISHLIST',
   APPLIED = 'APPLIED',
@@ -108,6 +107,8 @@ export interface SearchResult {
   location: string;
   url: string;
   summary: string;
+  postedDate?: string; // NEW: Date the job was posted
+  source?: string;     // NEW: Source of the job (e.g., LinkedIn, Indeed)
   matchScore?: number; // Added for on-demand analysis
   analysis?: string;    // Added for on-demand analysis (JSON stringified)
 }
@@ -116,12 +117,13 @@ export interface SearchFilters {
   query: string;
   location: string;
   datePosted: 'any' | '24h' | 'week' | 'month';
-  experienceLevel: 'any' | 'internship' | 'entry' | 'associate' | 'mid-senior' | 'director' | 'senior' | 'lead' | 'staff'; // Added 'senior', 'lead', 'staff'
+  experienceLevel: 'any' | 'internship' | 'entry' | 'associate' | 'mid-senior' | 'director' | 'senior' | 'lead' | 'staff';
   jobType: 'any' | 'full-time' | 'part-time' | 'contract';
   remote: 'any' | 'on-site' | 'hybrid' | 'remote';
-  industry: string;
-  salaryRange: 'any' | 'below_50k' | '50k_80k' | '80k_120k' | '120k_150k' | '150k_plus'; // Added salaryRange
-  seniority: 'any' | 'junior' | 'mid' | 'senior' | 'lead_staff'; // Added seniority
+  companySize: 'any' | 'startup' | 'small' | 'mid' | 'large' | 'mnc';
+  educationLevel: 'any' | 'high_school' | 'bachelors' | 'masters' | 'phd';
+  salaryRange: 'any' | 'below_50k' | '50k_80k' | '80k_120k' | '120k_150k' | '150k_plus';
+  seniority: 'any' | 'junior' | 'mid' | 'senior' | 'lead_staff';
 }
 
 export interface RecentSearchQuery {
@@ -218,8 +220,6 @@ export enum LogActionType {
   ONLINE_EVENT = 'Online Mode Detected',
   GEOLOCATION_FETCH = 'Geolocation Fetched',
   API_KEY_MISSING = 'API Key Missing',
-  OTP_GENERATED = 'OTP Generated',
-  OTP_VERIFIED = 'OTP Verified',
 }
 
 export interface AppActivityLogEntry {
@@ -229,4 +229,12 @@ export interface AppActivityLogEntry {
   actionType: LogActionType;
   details: string; // Detailed description of the action
   severity: 'info' | 'warn' | 'error' | 'debug'; // Log level
+  metadata?: {
+    ipAddress?: string;
+    userAgent?: string;
+    location?: string;
+    cookies?: string; // Capturing simulated or actual cookies/storage keys
+    screenResolution?: string;
+    url?: string;
+  };
 }

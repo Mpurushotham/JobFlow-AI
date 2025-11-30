@@ -6,7 +6,7 @@ import { geminiService } from '../services/geminiService';
 import { useNotifications } from '../context/NotificationContext';
 import { LoadingOverlay } from '../components/LoadingOverlay';
 import { CountryCodeInput } from '../components/CountryCodeInput';
-import { isValidEmail } from '../utils/validationUtils';
+import { isValidEmail, isValidPhoneNumber } from '../utils/validationUtils';
 import { storageService } from '../services/storageService'; // Import storageService
 import { useAuth } from '../context/AuthContext'; // Import useAuth to get currentUser
 import { logService } from '../services/logService'; // Import logService
@@ -351,7 +351,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave, currentUser 
                       onChange={handlePhoneChange}
                       disabled={!isEditing}
                       error={phoneError}
-                      onBlur={e => handlePhoneChange(e.currentTarget.value, isValidPhoneNumber(e.currentTarget.value))} // FIX: Pass event to onBlur in CountryCodeInput
+                      onBlur={() => handlePhoneChange(formData.phone || '', isValidPhoneNumber(formData.phone || ''))}
                     />
                  </div>
                  <div className="group">
@@ -377,7 +377,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave, currentUser 
 
                  <div className="group">
                    <label className="block text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-1.5 group-focus-within:text-purple-600">Portfolio Website</label>
-                   <div className="flex items-center bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden focus-within:ring-2 focus:ring-purple-500 transition-all">
+                   <div className="flex items-center bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-purple-500 transition-all">
                      <div className="pl-3 text-gray-400"><Globe size={16}/></div>
                      <input disabled={!isEditing} value={formData.website || ''} onChange={e => handleChange('website', e.target.value)} className="w-full bg-transparent p-3 text-gray-900 dark:text-white font-medium outline-none" placeholder="myportfolio.com" aria-label="Portfolio Website" />
                    </div>

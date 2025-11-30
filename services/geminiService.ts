@@ -1,5 +1,4 @@
 
-
 import { GoogleGenAI, Type, GenerateContentResponse } from '@google/genai';
 import { InterviewQA, SearchResult, ParsedResume, SearchFilters, UserProfile, ResumeGrade, MasterResumeFitResult, LearningPath, EmailPurpose, LogActionType } from '../types';
 import { logService } from './logService'; // Import new logService
@@ -76,15 +75,18 @@ export const geminiService = {
 
         // --- Primary Search: Uses all specified filters ---
         let primaryPrompt = `
-          You are a highly efficient job search engine assistant, specializing in finding active, recent job postings.
-          Your task is to find ${numJobsToFetch} job postings based on the provided criteria.
+          You are a highly efficient job search engine assistant.
+          Find ${numJobsToFetch} active, recent job postings.
+          
+          Target Sites: Search specifically on LinkedIn, Indeed, Glassdoor, Google Careers, We Work Remotely, Stack Overflow Jobs, and other legitimate job boards. Avoid aggregators if possible.
           
           Strictly adhere to ALL the following criteria:
           - Keywords: "${filters.query}"
         `;
 
         if (filters.location) primaryPrompt += `- Location: "${filters.location}"\n`;
-        if (filters.industry) primaryPrompt += `- Industry: "${filters.industry}"\n`;
+        if (filters.companySize !== 'any') primaryPrompt += `- Company Size: "${filters.companySize}"\n`;
+        if (filters.educationLevel !== 'any') primaryPrompt += `- Education Level: "${filters.educationLevel}"\n`;
 
         if (filters.datePosted !== 'any') {
           primaryPrompt += `- Date Posted: Within the ${dateMap[filters.datePosted]}\n`;
@@ -98,20 +100,22 @@ export const geminiService = {
         primaryPrompt += `
           Use the Google Search tool to find actual, currently open job postings that precisely match ALL these criteria. 
           
-          CRITICAL: For each job, provide a direct, valid URL to the *original job posting* on a reputable job site (e.g., LinkedIn, Indeed, company career page). If a direct link is absolutely not found after a thorough search, use "N/A" for the URL. Do not provide generic search result links or links to job aggregators that don't host the original ad.
+          CRITICAL: For each job, provide a direct, valid URL to the *original job posting* on a reputable job site. If a direct link is absolutely not found after a thorough search, use "N/A" for the URL.
 
           AFTER searching, format the results as a strict JSON array inside a markdown code block.
           Each JSON object for a job MUST have these exact keys and types:
           - title (string): The exact job title.
           - company (string): The company name.
-          - location (string): City, State, or Country (e.g., "London, UK", "Remote").
+          - location (string): City, State, or Country.
           - url (string): Direct URL to the job posting, or "N/A".
-          - summary (string): A concise 1-2 sentence description of the role, extracted directly from the posting.
+          - summary (string): A concise 1-2 sentence description of the role.
+          - postedDate (string): The date posted (e.g., "2 days ago", "Oct 12, 2023"). If unknown, use "Recently".
+          - source (string): The platform name (e.g., "LinkedIn", "Indeed", "Company Site").
 
           Example output format:
           \`\`\`json
           [
-            { "title": "Software Engineer", "company": "Tech Corp", "location": "Remote", "url": "https://examplejobs.com/job/...", "summary": "Develops and maintains software applications for cloud platforms." }
+            { "title": "Software Engineer", "company": "Tech Corp", "location": "Remote", "url": "https://linkedin.com/jobs/...", "summary": "Develops software...", "postedDate": "1 day ago", "source": "LinkedIn" }
           ]
           \`\`\`
           Ensure the JSON is perfectly valid and only includes the specified keys. DO NOT include any conversational text outside the markdown block.
@@ -131,26 +135,28 @@ export const geminiService = {
         if (primaryResults.length === 0) {
             // --- Fallback Search: If primary search yields no results, perform a broader search ---
             const fallbackPrompt = `
-              You are a highly efficient job search engine assistant, specializing in finding active, recent job postings.
-              No jobs were found with the specific filters. Now, find ${numJobsToFetch} recent, active job postings for: "${filters.query}" from various reputable sources.
-              For this broader search, focus primarily on the keywords and ignore other specific filters (like location, date posted, experience level, job type, remote, industry, salary range, and seniority).
+              You are a highly efficient job search engine assistant.
+              No jobs were found with the specific filters. Now, find ${numJobsToFetch} recent, active job postings for: "${filters.query}" from various reputable sources like LinkedIn, Indeed, Glassdoor, Google Jobs, etc.
+              For this broader search, focus primarily on the keywords and ignore other specific filters.
               
               Use the Google Search tool to find actual, currently open job postings.
               
-              CRITICAL: For each job, provide a direct, valid URL to the *original job posting* on a reputable job site (e.g., LinkedIn, Indeed, company career page). If a direct link is absolutely not found after a thorough search, use "N/A" for the URL. Do not provide generic search result links or links to job aggregators that don't host the original ad.
+              CRITICAL: For each job, provide a direct, valid URL.
 
               AFTER searching, format the results as a strict JSON array inside a markdown code block.
               Each JSON object for a job MUST have these exact keys and types:
               - title (string): The exact job title.
               - company (string): The company name.
-              - location (string): City, State, or Country (e.g., "London, UK", "Remote").
+              - location (string): City, State, or Country.
               - url (string): Direct URL to the job posting, or "N/A".
-              - summary (string): A concise 1-2 sentence description of the role, extracted directly from the posting.
+              - summary (string): A concise 1-2 sentence description.
+              - postedDate (string): The approximate date posted.
+              - source (string): The platform name.
               
               Example output format:
               \`\`\`json
               [
-                { "title": "Software Engineer", "company": "Tech Corp", "location": "Remote", "url": "https://examplejobs.com/job/...", "summary": "Develops and maintains software applications for cloud platforms." }
+                { "title": "Software Engineer", "company": "Tech Corp", "location": "Remote", "url": "https://linkedin.com/jobs/...", "summary": "Develops software...", "postedDate": "1 day ago", "source": "LinkedIn" }
               ]
               \`\`\`
               Ensure the JSON is perfectly valid and only includes the specified keys. DO NOT include any conversational text outside the markdown block.

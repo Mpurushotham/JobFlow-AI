@@ -1,6 +1,4 @@
 
-
-
 import React, { useEffect, useState } from 'react';
 import { Sparkles, Target, FileText, MessageSquare, PieChart, Lock, ArrowRight, Bot, Sun, Cloud, CloudRain, CloudSnow, Wind, Globe, Briefcase, TrendingUp, Zap, Heart } from 'lucide-react';
 import { ThemeToggle } from '../components/ThemeToggle';
