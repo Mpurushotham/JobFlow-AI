@@ -3,6 +3,7 @@
   "description": "An intelligent, end-to-end job application assistant powered by Gemini. Track applications, tailor resumes, generate cover letters, and prepare for interviews—all stored locally.",
   "requestFramePermissions": [
     "geolocation",
-    "microphone"
+    "microphone",
+    "camera"
   ]
 }

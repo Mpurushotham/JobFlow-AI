@@ -1,8 +1,9 @@
 
-import { Job, UserProfile } from '../types';
+import { Job, UserProfile, RecentSearchQuery } from '../types';
 
 const JOBS_KEY = 'jobflow_jobs_multi';
 const PROFILES_KEY = 'jobflow_profiles_multi';
+const RECENT_SEARCHES_KEY = 'jobflow_recent_searches';
 
 // Helper functions to get and set namespaced data
 const getAllJobs = (): Record<string, Job[]> => {
@@ -70,6 +71,31 @@ export const storageService = {
     localStorage.setItem(PROFILES_KEY, JSON.stringify(allProfiles));
   },
 
+  getRecentSearches: (): RecentSearchQuery[] => {
+    try {
+      const data = localStorage.getItem(RECENT_SEARCHES_KEY);
+      return data ? JSON.parse(data) : [];
+    } catch (e) {
+      console.error('Failed to load recent searches', e);
+      return [];
+    }
+  },
+
+  saveRecentSearch: (query: string): void => {
+    let searches = storageService.getRecentSearches();
+    // Remove existing entry if query is the same to update timestamp
+    searches = searches.filter(s => s.query.toLowerCase() !== query.toLowerCase());
+    
+    // Add new search
+    searches.unshift({ query, timestamp: Date.now() });
+    
+    // Keep only the latest 5
+    if (searches.length > 5) {
+      searches = searches.slice(0, 5);
+    }
+    localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(searches));
+  },
+
   // === Admin functions ===
   getAllProfiles: (): Record<string, UserProfile> => {
     return getAllProfiles();
@@ -82,6 +108,7 @@ export const storageService = {
   deleteAllData: (): void => {
     localStorage.removeItem(JOBS_KEY);
     localStorage.removeItem(PROFILES_KEY);
+    localStorage.removeItem(RECENT_SEARCHES_KEY); // Clear recent searches too
     // Note: This does not delete user accounts from authService. That should be handled separately.
   }
 };

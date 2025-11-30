@@ -1,13 +1,14 @@
 
 
+
 import React, { useEffect, useState } from 'react';
-import { Sparkles, Target, FileText, MessageSquare, PieChart, Lock, ArrowRight, Bot, Sun, Cloud, CloudRain, CloudSnow, Wind } from 'lucide-react';
+import { Sparkles, Target, FileText, MessageSquare, PieChart, Lock, ArrowRight, Bot, Sun, Cloud, CloudRain, CloudSnow, Wind, Globe, Briefcase, TrendingUp, Zap, Heart } from 'lucide-react';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { geminiService } from '../services/geminiService';
-import { Heart } from 'lucide-react';
+
 
 interface WelcomeViewProps {
-  onNavigateToAuth: (mode: 'login' | 'signup') => void;
+  onNavigateToAuth: (mode: 'login' | 'signup' | 'pricing' | 'security_privacy') => void; // Added 'pricing'
 }
 
 const FeatureCard = ({ icon, title, children }: { icon: React.ReactNode, title: string, children: React.ReactNode }) => (
@@ -20,42 +21,44 @@ const FeatureCard = ({ icon, title, children }: { icon: React.ReactNode, title: 
   </div>
 );
 
-const getWeatherIcon = (description: string): React.ReactElement => {
-    const desc = description.toLowerCase();
-    if (desc.includes('sun') || desc.includes('clear')) return <Sun size={16} className="text-yellow-400" />;
-    if (desc.includes('cloud')) return <Cloud size={16} className="text-slate-400" />;
-    if (desc.includes('rain') || desc.includes('drizzle')) return <CloudRain size={16} className="text-blue-400" />;
-    if (desc.includes('snow')) return <CloudSnow size={16} className="text-cyan-300" />;
-    if (desc.includes('storm') || desc.includes('thunder')) return <CloudRain size={16} className="text-indigo-400" />;
-    if (desc.includes('mist') || desc.includes('fog')) return <Wind size={16} className="text-slate-400" />;
-    return <Cloud size={16} className="text-slate-400" />;
+// Simple component for animated number counting
+const AnimatedNumber: React.FC<{ value: number; suffix?: string; duration?: number }> = ({ value, suffix = '', duration = 1500 }) => {
+  const [currentValue, setCurrentValue] = useState(0);
+
+  useEffect(() => {
+    let startTimestamp: number | null = null;
+    const animate = (timestamp: number) => {
+      if (!startTimestamp) startTimestamp = timestamp;
+      const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+      setCurrentValue(Math.floor(progress * value));
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      }
+    };
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        requestAnimationFrame(animate);
+        observer.disconnect(); // Stop observing once animation starts
+      }
+    });
+    // Check if element exists before observing
+    const targetElement = document.getElementById(`animated-number-${value}${suffix}`);
+    if (targetElement) {
+      observer.observe(targetElement);
+    }
+
+
+    return () => {
+      if (observer) observer.disconnect();
+    };
+  }, [value, duration, suffix]);
+
+  return <span id={`animated-number-${value}${suffix}`}>{currentValue.toLocaleString()}{suffix}</span>;
 };
 
 
 const WelcomeView: React.FC<WelcomeViewProps> = ({ onNavigateToAuth }) => {
-  const [weatherData, setWeatherData] = useState<{ city: string; description: string; temperature: number } | null>(null);
-
-  useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const { latitude, longitude } = position.coords;
-          try {
-            const data = await geminiService.getWeatherByCoords(latitude, longitude);
-            setWeatherData(data);
-          } catch (error: any) {
-            // Silently fail on rate limit, log other errors
-            if (error.message !== 'RATE_LIMIT_EXCEEDED') {
-                console.error("Error fetching weather data:", error);
-            }
-          }
-        },
-        (error) => {
-          console.warn(`Geolocation error: ${error.message}`);
-        }
-      );
-    }
-  }, []);
+  // Removed weatherData state and useEffect for fetching weather.
 
   return (
     <div className="w-full min-h-screen bg-slate-900 text-white font-sans overflow-y-auto custom-scrollbar flex flex-col">
@@ -74,18 +77,16 @@ const WelcomeView: React.FC<WelcomeViewProps> = ({ onNavigateToAuth }) => {
                 <Sparkles size={20} />
               </div>
               <h1 className="text-xl font-bold tracking-tight">JobFlow AI</h1>
-              {weatherData && (
-                <div className="hidden sm:flex items-center gap-2.5 text-sm text-slate-300 bg-white/5 px-3 py-1.5 rounded-full border border-white/10 backdrop-blur-sm ml-4">
-                    {getWeatherIcon(weatherData.description)}
-                    <span>{weatherData.city}</span>
-                    <span className="font-bold text-white">{Math.round(weatherData.temperature)}°C</span>
-                </div>
-              )}
+              {/* Removed weatherData display from here */}
             </div>
             <div className="flex items-center gap-2">
               <ThemeToggle />
+              {/* New Pricing Plans button */}
               <button onClick={() => onNavigateToAuth('login')} className="hidden sm:block text-sm font-bold px-5 py-2.5 rounded-xl hover:bg-white/10 transition-colors">
                 Login
+              </button>
+              <button onClick={() => onNavigateToAuth('pricing')} className="hidden sm:block text-sm font-bold px-5 py-2.5 rounded-xl hover:bg-white/10 transition-colors">
+                Pricing Plans
               </button>
               <button onClick={() => onNavigateToAuth('signup')} className="text-sm font-bold px-5 py-2.5 rounded-xl bg-white text-slate-900 hover:bg-slate-200 transition-colors shadow-lg">
                 Get Started
@@ -144,16 +145,58 @@ const WelcomeView: React.FC<WelcomeViewProps> = ({ onNavigateToAuth }) => {
                </div>
             </div>
           </section>
+
+          {/* New: Trust & Impact Section */}
+          <section className="py-20 px-4 md:px-8 bg-slate-800 dark:bg-slate-900/50">
+            <div className="max-w-7xl mx-auto">
+              <div className="text-center mb-16">
+                <h3 className="text-3xl md:text-4xl font-bold tracking-tight text-white">Our Impact & Global Reach</h3>
+                <p className="mt-4 text-lg text-slate-300 max-w-2xl mx-auto">Join a thriving community of job seekers achieving success worldwide.</p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                <div className="bg-white/5 dark:bg-slate-800/30 p-8 rounded-3xl border border-white/10 dark:border-slate-700 backdrop-blur-lg flex flex-col items-center text-center">
+                  <Globe size={48} className="text-indigo-400 mb-6" />
+                  <p className="text-5xl font-extrabold text-white mb-2"><AnimatedNumber value={100000} suffix="+" /></p>
+                  <p className="text-lg text-slate-300">Users Worldwide</p>
+                </div>
+                <div className="bg-white/5 dark:bg-slate-800/30 p-8 rounded-3xl border border-white/10 dark:border-slate-700 backdrop-blur-lg flex flex-col items-center text-center">
+                  <Briefcase size={48} className="text-emerald-400 mb-6" />
+                  <p className="text-5xl font-extrabold text-white mb-2"><AnimatedNumber value={500000} suffix="+" /></p>
+                  <p className="text-lg text-slate-300">Jobs Tracked</p>
+                </div>
+                <div className="bg-white/5 dark:bg-slate-800/30 p-8 rounded-3xl border border-white/10 dark:border-slate-700 backdrop-blur-lg flex flex-col items-center text-center">
+                  <TrendingUp size={48} className="text-yellow-400 mb-6" />
+                  <p className="text-5xl font-extrabold text-white mb-2"><AnimatedNumber value={85} suffix="%" /></p>
+                  <p className="text-lg text-slate-300">Interview Rate Increase</p>
+                </div>
+                <div className="bg-white/5 dark:bg-slate-800/30 p-8 rounded-3xl border border-white/10 dark:border-slate-700 backdrop-blur-lg flex flex-col items-center text-center">
+                  <Zap size={48} className="text-purple-400 mb-6" />
+                  <p className="text-5xl font-extrabold text-white mb-2"><AnimatedNumber value={70} suffix="%" /></p>
+                  <p className="text-lg text-slate-300">Faster Job Search</p>
+                </div>
+              </div>
+              <div className="mt-16 text-center">
+                <p className="text-xl text-slate-200 mb-8 max-w-2xl mx-auto">
+                  Ready to take control of your career? Join JobFlow AI today and unlock your full potential.
+                </p>
+                <button onClick={() => onNavigateToAuth('signup')} className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white px-8 py-4 rounded-2xl font-bold shadow-2xl shadow-indigo-500/30 transition-all transform hover:scale-105 flex items-center gap-2 mx-auto">
+                  Start Your Journey Now <ArrowRight size={18} />
+                </button>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
 
       {/* Footer */}
       <footer className="relative z-10 py-12 px-4 md:px-8 border-t border-white/10 mt-auto">
           <div className="max-w-7xl mx-auto text-center text-slate-400 text-sm">
-              <p>&copy; {new Date().getFullYear()} JobFlow AI Built with <Heart size={12} className="text-red-500 fill-red-500" /> by <span className="text-gray-900 dark:text-white font-bold">Purushotham Muktha</span>. All Rights Reserved.</p>
+              <p className="mb-2">&copy; {new Date().getFullYear()} JobFlow AI Built with <Heart size={16} className="text-red-500 fill-red-500" /> by <span className="text-gray-900 dark:text-white font-bold">Purushotham Muktha</span>. All Rights Reserved.</p>
+              <button onClick={() => onNavigateToAuth('security_privacy')} className="font-bold text-indigo-300 hover:underline transition-colors">
+                Security & Privacy
+              </button>
           </div>
       </footer>
-{/* FIX: Removed non-standard `jsx` prop from the <style> tag to resolve TypeScript error. */}
       <style>{`
         .animate-blob {
           animation: blob 7s infinite;

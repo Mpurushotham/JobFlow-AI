@@ -1,20 +1,42 @@
 
+
 import React, { useState, useEffect } from 'react';
-import { UserProfile, Job, User } from '../types';
+import { UserProfile, Job, User, SubscriptionTier } from '../types';
 import { storageService } from '../services/storageService';
 import { authService } from '../services/authService';
-import { KeyRound, Eye, Trash2, User as UserIcon, Briefcase, AlertTriangle, X, ShieldCheck, Lock } from 'lucide-react';
+import { KeyRound, Eye, Trash2, User as UserIcon, Briefcase, AlertTriangle, X, ShieldCheck, Lock, TrendingUp, ChevronDown, Mail, Phone } from 'lucide-react'; // Added Mail, Phone
 import { useNotifications } from '../context/NotificationContext';
+import { CountryCodeInput } from '../components/CountryCodeInput'; // Import new component
+import { isValidEmail, isValidPin } from '../utils/validationUtils'; // Import new utility
+
+interface AdminViewProps {
+  currentUserSubscriptionTier: SubscriptionTier | null; // Pass current admin's tier
+}
 
 const ResetPasswordModal: React.FC<{ user: User; onClose: () => void; onSave: () => void; }> = ({ user, onClose, onSave }) => {
     const [newPassword, setNewPassword] = useState('');
     const [newPin, setNewPin] = useState('');
+    const [pinError, setPinError] = useState<string | null>(null);
     const { addNotification } = useNotifications();
 
+    const handlePinChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const value = e.target.value;
+      setNewPin(value);
+      if (value && !isValidPin(value)) {
+        setPinError('PIN must be 4 digits.');
+      } else {
+        setPinError(null);
+      }
+    };
+
     const handleReset = () => {
-        if (!newPassword || newPin.length !== 4) {
-            addNotification('Password cannot be empty and PIN must be 4 digits.', 'error');
+        if (!newPassword) {
+            addNotification('Password cannot be empty.', 'error');
             return;
+        }
+        if (!isValidPin(newPin)) {
+          addNotification('PIN must be 4 digits.', 'error');
+          return;
         }
         if (authService.resetPasswordPin(user.username, newPassword, newPin)) {
             addNotification(`Credentials for ${user.username} have been reset.`, 'success');
@@ -44,8 +66,16 @@ const ResetPasswordModal: React.FC<{ user: User; onClose: () => void; onSave: ()
                         <label className="text-sm font-bold text-gray-600 dark:text-slate-400">New 4-Digit PIN</label>
                          <div className="relative mt-1">
                             <ShieldCheck size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                            <input type="text" value={newPin} onChange={e => setNewPin(e.target.value)} maxLength={4} className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-lg" />
+                            <input 
+                              type="password" 
+                              value={newPin} 
+                              onChange={handlePinChange} 
+                              onBlur={() => handlePinChange({target: {value: newPin}} as React.ChangeEvent<HTMLInputElement>)} // Validate on blur
+                              maxLength={4} 
+                              className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-lg" 
+                            />
                         </div>
+                        {pinError && <p className="mt-1 text-xs text-red-500">{pinError}</p>}
                     </div>
                 </div>
                 <div className="flex gap-3 mt-6">
@@ -75,13 +105,14 @@ const DataViewerModal: React.FC<{ title: string; data: any; onClose: () => void;
 );
 
 
-const AdminView: React.FC = () => {
+const AdminView: React.FC<AdminViewProps> = ({ currentUserSubscriptionTier }) => { // Accept current admin's tier
     const [users, setUsers] = useState<User[]>([]);
     const [profiles, setProfiles] = useState<Record<string, UserProfile>>({});
     const [jobs, setJobs] = useState<Record<string, Job[]>>({});
 
     const [modal, setModal] = useState<'reset' | 'viewProfile' | 'viewJobs' | null>(null);
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
+    const { addNotification } = useNotifications();
 
     useEffect(() => {
         loadData();
@@ -97,10 +128,19 @@ const AdminView: React.FC = () => {
         if (window.confirm("DANGER: This will delete ALL users, jobs, and profile data from local storage. The admin account will be the only one remaining. This action cannot be undone. Proceed?")) {
             localStorage.removeItem('jobflow_jobs_multi');
             localStorage.removeItem('jobflow_profiles_multi');
-            localStorage.removeItem('jobflow_users');
-            loadData();
-            alert("All application data has been cleared.");
+            localStorage.removeItem('jobflow_users'); // Also clear users except admin (handled by authService logic)
+            loadData(); // Reload to show cleared state (only admin user remains)
+            addNotification("All application data has been cleared.", 'success');
         }
+    };
+
+    const handleChangeSubscriptionTier = (username: string, newTier: SubscriptionTier) => {
+      if (authService.updateUserSubscription(username, newTier)) {
+        addNotification(`Subscription for ${username} updated to ${newTier}.`, 'success');
+        loadData(); // Reload data to reflect change
+      } else {
+        addNotification(`Failed to update subscription for ${username}.`, 'error');
+      }
     };
 
     const openModal = (type: 'reset' | 'viewProfile' | 'viewJobs', user: User) => {
@@ -134,6 +174,7 @@ const AdminView: React.FC = () => {
                         <thead className="bg-gray-50 dark:bg-slate-900/50">
                             <tr>
                                 <th className="p-3 text-xs font-bold text-gray-500 dark:text-slate-400 uppercase">Username</th>
+                                <th className="p-3 text-xs font-bold text-gray-500 dark:text-slate-400 uppercase">Subscription</th>
                                 <th className="p-3 text-xs font-bold text-gray-500 dark:text-slate-400 uppercase">Contact</th>
                                 <th className="p-3 text-xs font-bold text-gray-500 dark:text-slate-400 uppercase">Created</th>
                                 <th className="p-3 text-xs font-bold text-gray-500 dark:text-slate-400 uppercase">Last Login</th>
@@ -145,9 +186,24 @@ const AdminView: React.FC = () => {
                             {users.map(user => (
                                 <tr key={user.username}>
                                     <td className="p-3 font-medium text-gray-800 dark:text-white">{user.username}</td>
+                                    <td className="p-3">
+                                        <div className="relative inline-block text-left">
+                                            <select
+                                                value={user.subscriptionTier}
+                                                onChange={(e) => handleChangeSubscriptionTier(user.username, e.target.value as SubscriptionTier)}
+                                                className={`appearance-none bg-white dark:bg-slate-700 border rounded-full px-3 py-1 text-xs font-bold uppercase cursor-pointer pr-8
+                                                    ${user.subscriptionTier === SubscriptionTier.AI_PRO ? 'border-purple-200 text-purple-700 dark:border-purple-700 dark:text-purple-400' : 'border-gray-200 text-gray-600 dark:border-slate-600 dark:text-slate-300'}
+                                                `}
+                                            >
+                                                <option value={SubscriptionTier.FREE}>Free</option>
+                                                <option value={SubscriptionTier.AI_PRO}>AI Pro</option>
+                                            </select>
+                                            <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                                        </div>
+                                    </td>
                                     <td className="p-3 text-sm text-gray-600 dark:text-slate-300">
-                                        <div>{user.email}</div>
-                                        <div className="text-xs text-gray-400">{user.phone}</div>
+                                        <div className="flex items-center gap-1"><Mail size={12} /> {user.email}</div>
+                                        <div className="flex items-center gap-1 text-xs text-gray-400"><Phone size={12} /> {user.phone}</div>
                                     </td>
                                     <td className="p-3 text-sm text-gray-500 dark:text-slate-400">{new Date(user.createdDate).toLocaleDateString()}</td>
                                     <td className="p-3 text-sm text-gray-500 dark:text-slate-400">{user.lastLogin ? new Date(user.lastLogin).toLocaleString() : 'Never'}</td>

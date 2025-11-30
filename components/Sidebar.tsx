@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import { 
   Home, 
@@ -13,9 +14,10 @@ import {
   Bot,
   Settings,
   LogOut,
-  Globe
+  Globe,
+  Sun, Cloud, CloudRain, CloudSnow, Wind, RefreshCw, BrainCircuit, Wallet, Mail // Import weather icons and refresh, BrainCircuit, Wallet for pricing, Mail for email assistant
 } from 'lucide-react';
-import { ViewState } from '../types';
+import { ViewState, SubscriptionTier } from '../types';
 import { ThemeToggle } from './ThemeToggle';
 
 interface SidebarProps {
@@ -25,9 +27,23 @@ interface SidebarProps {
   setSidebarOpen: (open: boolean) => void;
   onLogout: () => void;
   isAdmin: boolean;
+  globalWeather: { city: string; description: string; temperature: number } | null; // New prop for global weather
+  refetchGlobalWeather: (force?: boolean) => void; // New prop for refetching weather
+  subscriptionTier: SubscriptionTier | null; // New: User's subscription tier
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ view, setView, sidebarOpen, setSidebarOpen, onLogout, isAdmin }) => {
+const getWeatherIcon = (description: string): React.ReactElement => {
+    const desc = description.toLowerCase();
+    if (desc.includes('sun') || desc.includes('clear')) return <Sun size={16} className="text-yellow-500" />;
+    if (desc.includes('cloud')) return <Cloud size={16} className="text-slate-400" />;
+    if (desc.includes('rain') || desc.includes('drizzle')) return <CloudRain size={16} className="text-blue-500" />;
+    if (desc.includes('snow')) return <CloudSnow size={16} className="text-cyan-300" />;
+    if (desc.includes('storm') || desc.includes('thunder')) return <CloudRain size={16} className="text-indigo-500" />;
+    if (desc.includes('mist') || desc.includes('fog')) return <Wind size={16} className="text-slate-400" />;
+    return <Cloud size={16} className="text-slate-400" />;
+};
+
+export const Sidebar: React.FC<SidebarProps> = ({ view, setView, sidebarOpen, setSidebarOpen, onLogout, isAdmin, globalWeather, refetchGlobalWeather, subscriptionTier }) => {
   const NavItem = ({ id, icon: Icon, label }: { id: ViewState, icon: any, label: string }) => (
     <button 
       onClick={() => { setView(id); setSidebarOpen(false); }}
@@ -66,6 +82,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ view, setView, sidebarOpen, se
         <NavItem id="AI_COACH" icon={Bot} label="AI Coach" />
         <NavItem id="ONLINE_PRESENCE" icon={Globe} label="Online Presence" />
 
+        <div className="pt-6 pb-2 px-4 text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest">Account</div>
+        <NavItem id="PRICING" icon={Wallet} label="Pricing Plans" /> {/* New: Pricing Plan Nav Item */}
+
         {isAdmin && (
           <>
             <div className="pt-6 pb-2 px-4 text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest">Management</div>
@@ -75,21 +94,52 @@ export const Sidebar: React.FC<SidebarProps> = ({ view, setView, sidebarOpen, se
       </nav>
 
       <div className="mt-auto pt-6 border-t border-gray-200/60 dark:border-slate-800 space-y-3">
+         {subscriptionTier && (
+            <div className={`rounded-2xl p-4 flex items-center gap-3 transition-colors ${subscriptionTier === SubscriptionTier.AI_PRO ? 'bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800' : 'bg-gray-50 dark:bg-slate-700/50 border border-gray-100 dark:border-slate-700'}`}>
+              <Sparkles size={20} className={subscriptionTier === SubscriptionTier.AI_PRO ? 'text-purple-500' : 'text-gray-400'} />
+              <div>
+                <p className="text-xs font-bold text-gray-800 dark:text-white mb-0.5">Subscription</p>
+                <p className={`text-xs font-bold ${subscriptionTier === SubscriptionTier.AI_PRO ? 'text-purple-600 dark:text-purple-400' : 'text-gray-500 dark:text-slate-400'} uppercase`}>
+                  {subscriptionTier === SubscriptionTier.AI_PRO ? 'AI Pro' : 'Free User'}
+                </p>
+              </div>
+            </div>
+         )}
+
          <button 
            onClick={onLogout}
            className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm text-gray-500 dark:text-slate-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-500 transition-colors"
          >
            <LogOut size={18} /> Logout
          </button>
-         <div className={`rounded-2xl p-4 flex items-center gap-3 transition-colors bg-indigo-50/50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-900`}>
-           <div className={`w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]`}></div>
-           <div>
-              <p className="text-xs font-bold text-gray-800 dark:text-white mb-0.5">AI System Status</p>
-              <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">
-                Online
-              </p>
-           </div>
-         </div>
+
+         {/* Global Weather Display */}
+         {globalWeather && globalWeather.city && typeof globalWeather.temperature === 'number' ? (
+            <div className={`rounded-2xl p-4 flex items-center gap-3 transition-colors bg-indigo-50/50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-900`}>
+              {getWeatherIcon(globalWeather.description)}
+              <div>
+                <p className="text-xs font-bold text-gray-800 dark:text-white mb-0.5">
+                  {globalWeather.city}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">
+                  {Math.round(globalWeather.temperature)}°C, {globalWeather.description}
+                </p>
+              </div>
+              <button onClick={() => refetchGlobalWeather(true)} className="ml-auto p-1.5 text-gray-400 hover:text-indigo-500 rounded-full hover:bg-indigo-100 dark:hover:bg-indigo-900/30 transition-colors" title="Refresh weather">
+                <RefreshCw size={16} />
+              </button>
+            </div>
+         ) : (
+            <div className={`rounded-2xl p-4 flex items-center gap-3 transition-colors bg-indigo-50/50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-900`}>
+                <div className={`w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]`}></div>
+                <div>
+                  <p className="text-xs font-bold text-gray-800 dark:text-white mb-0.5">AI System Status</p>
+                  <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">
+                    Online
+                  </p>
+                </div>
+            </div>
+         )}
       </div>
     </aside>
   );

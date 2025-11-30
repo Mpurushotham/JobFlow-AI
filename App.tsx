@@ -1,16 +1,20 @@
+
+
 // FIX: Corrected import statement for React and its hooks.
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useEffect, lazy, Suspense, useCallback } from 'react';
 
 // Import types
-import { Job, UserProfile, ViewState } from './types';
+import { Job, UserProfile, ViewState, SubscriptionTier } from './types';
 
 // Import services
 import { storageService } from './services/storageService';
 import { authService } from './services/authService';
+import { geminiService } from './services/geminiService';
 
 // Import context and providers
 import { ThemeProvider } from './context/ThemeContext';
 import { NotificationProvider, useNotifications } from './context/NotificationContext';
+import { AuthProvider, useAuth } from './context/AuthContext'; // Import AuthProvider and useAuth
 
 // Import components
 import { Sidebar } from './components/Sidebar';
@@ -36,6 +40,8 @@ const AuthView = lazy(() => import('./views/AuthView'));
 const AdminView = lazy(() => import('./views/AdminView'));
 const WelcomeView = lazy(() => import('./views/WelcomeView'));
 const OnlinePresenceView = lazy(() => import('./views/OnlinePresenceView'));
+const PricingView = lazy(() => import('./views/PricingView')); // New: Pricing View
+const SecurityPrivacyView = lazy(() => import('./views/SecurityPrivacyView')); // New: Security & Privacy View
 
 // --- Suspense Fallback Loader ---
 const ViewLoader = () => (
@@ -68,8 +74,7 @@ const ToastContainer = () => {
 
 
 // --- Main App Content (Protected) ---
-const AppContent: React.FC<{ onLogout: () => void; isAdmin: boolean; currentUser: string; }> = ({ onLogout, isAdmin, currentUser }) => {
-  const [view, setView] = useState<ViewState>('HOME');
+const AppContent: React.FC<{ onLogout: () => void; isAdmin: boolean; currentUser: string; globalWeather: { city: string; description: string; temperature: number } | null; refetchGlobalWeather: (force?: boolean) => void; subscriptionTier: SubscriptionTier | null; login: (username: string, isAdmin: boolean, subscriptionTier: SubscriptionTier) => void; view: ViewState; setView: (view: ViewState) => void; }> = ({ onLogout, isAdmin, currentUser, globalWeather, refetchGlobalWeather, subscriptionTier, login, view, setView }) => {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [profile, setProfile] = useState<UserProfile>({ name: '', resumeContent: '', targetRoles: '' });
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -79,9 +84,15 @@ const AppContent: React.FC<{ onLogout: () => void; isAdmin: boolean; currentUser
   useEffect(() => {
     if (currentUser) {
         setJobs(storageService.getJobs(currentUser));
-        setProfile(storageService.getProfile(currentUser));
+        // Ensure profile also gets the subscriptionTier. It will be saved by authService/login.
+        const userProfile = storageService.getProfile(currentUser);
+        if (subscriptionTier && userProfile.subscriptionTier !== subscriptionTier) {
+          userProfile.subscriptionTier = subscriptionTier; // Sync profile tier with auth tier
+          storageService.saveProfile(currentUser, userProfile);
+        }
+        setProfile(userProfile);
     }
-  }, [currentUser]);
+  }, [currentUser, subscriptionTier]); // Re-run if tier changes while logged in
 
   const handleUpdateJob = (updatedJob: Job) => {
     storageService.saveJob(currentUser, updatedJob);
@@ -120,12 +131,13 @@ const AppContent: React.FC<{ onLogout: () => void; isAdmin: boolean; currentUser
                   profile={profile} 
                   jobs={jobs} 
                   onNavigate={(v) => { setView(v); }}
+                  // FIX: Added the `onAddJob` prop.
                   onAddJob={() => setIsAddModalOpen(true)}
                 />;
       case 'PROFILE':
         return <ProfileView profile={profile} onSave={handleSaveProfile} />;
       case 'JOB_SEARCH':
-        return <JobSearchView onAddJobFound={handleUpdateJob} />;
+        return <JobSearchView onAddJobFound={handleUpdateJob} profile={profile} subscriptionTier={subscriptionTier} />;
       case 'JOBS':
         return <JobsView 
                   jobs={jobs} 
@@ -135,7 +147,10 @@ const AppContent: React.FC<{ onLogout: () => void; isAdmin: boolean; currentUser
                   onUpdateJob={handleUpdateJob}
                 />;
       case 'TRACKER':
-        return <TrackerView jobs={jobs} onSelectJob={(j) => { setSelectedJob(j); setView('WORKSPACE'); }} />;
+        return <TrackerView 
+                  jobs={jobs} 
+                  onSelectJob={(j) => { setSelectedJob(j); setView('WORKSPACE'); }} 
+                />;
       case 'INTERVIEWS':
         return <InterviewsView 
                   jobs={jobs}
@@ -150,6 +165,7 @@ const AppContent: React.FC<{ onLogout: () => void; isAdmin: boolean; currentUser
                     profile={profile}
                     onUpdateJob={handleUpdateJob}
                     onBack={() => { setSelectedJob(null); setView('JOBS'); }}
+                    subscriptionTier={subscriptionTier}
                   />;
         }
         // Fallback if no job is selected
@@ -158,11 +174,27 @@ const AppContent: React.FC<{ onLogout: () => void; isAdmin: boolean; currentUser
       case 'DONATE':
         return <DonateView />;
       case 'AI_COACH':
-        return <AICoachView profile={profile} />;
+        return <AICoachView profile={profile} subscriptionTier={subscriptionTier} />;
       case 'ONLINE_PRESENCE':
-        return <OnlinePresenceView profile={profile} />;
+        return <OnlinePresenceView profile={profile} subscriptionTier={subscriptionTier} />;
       case 'ADMIN':
-        return <AdminView />;
+        return <AdminView currentUserSubscriptionTier={subscriptionTier} />;
+      case 'PRICING': // New: Pricing View
+        return <PricingView 
+                  currentTier={subscriptionTier} 
+                  currentUser={currentUser} 
+                  onUpgrade={(newTier) => {
+                    // Manually update local auth context after simulated upgrade
+                    // This ensures the AppContent re-renders with the new tier
+                    authService.updateUserSubscription(currentUser!, newTier);
+                    // FIX: Pass all required arguments to login function.
+                    login(currentUser!, isAdmin, newTier); // Update AuthContext state
+                    setView('HOME'); // Navigate home after upgrade
+                  }} 
+                  onBackToHome={() => setView('HOME')} // Pass onBackToHome to PricingView
+                />;
+      case 'SECURITY_PRIVACY': // New: Security & Privacy View
+        return <SecurityPrivacyView />;
       default:
         return <HomeView 
                   profile={profile} 
@@ -185,6 +217,9 @@ const AppContent: React.FC<{ onLogout: () => void; isAdmin: boolean; currentUser
         setSidebarOpen={setSidebarOpen} 
         onLogout={onLogout}
         isAdmin={isAdmin}
+        globalWeather={globalWeather}
+        refetchGlobalWeather={refetchGlobalWeather}
+        subscriptionTier={subscriptionTier} // Pass tier to Sidebar
       />
 
       {/* Main Content */}
@@ -211,25 +246,90 @@ const AppContent: React.FC<{ onLogout: () => void; isAdmin: boolean; currentUser
           <Footer onNavigate={setView} />
         </div>
       </main>
-      
-      <ToastContainer />
-
-      <AddJobModal 
-        isOpen={isAddModalOpen} 
-        onClose={() => setIsAddModalOpen(false)} 
-        onSave={(job) => { handleUpdateJob(job); setIsAddModalOpen(false); }} 
-      />
     </div>
   );
 };
 
-const App: React.FC = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [currentUser, setCurrentUser] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [authFlowState, setAuthFlowState] = useState<'welcome' | 'login' | 'signup'>('welcome');
+// --- Wrapper for the main application logic, ensures NotificationProvider is active ---
+const MainApplicationWrapper: React.FC = () => {
+  const {isAuthenticated, isAdmin, currentUser, subscriptionTier, isLoading: isAuthLoading, login, logout} = useAuth(); // Use AuthContext
+  const [authFlowState, setAuthFlowState] = useState<'welcome' | 'login' | 'signup' | 'forgot_credentials' | 'otp_verify'>('welcome'); // Added forgot_credentials, otp_verify
+  const [view, setView] = useState<ViewState>('HOME'); // Moved view state here
   const [apiKeyStatus, setApiKeyStatus] = useState<'loading' | 'present' | 'missing'>('loading');
+  const [globalWeather, setGlobalWeather] = useState<{ city: string; description: string; temperature: number } | null>(null);
+  const [isFetchingWeather, setIsFetchingWeather] = useState(false);
+  const { addNotification } = useNotifications(); // Access notifications here, now safely within provider.
+
+  // Handle URL hash for navigation (moved here)
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#/', '');
+      const validViews: ViewState[] = ['HOME', 'PROFILE', 'JOB_SEARCH', 'JOBS', 'TRACKER', 'INTERVIEWS', 'ANALYTICS', 'WORKSPACE', 'DONATE', 'AI_COACH', 'ADMIN', 'ONLINE_PRESENCE', 'PRICING', 'SECURITY_PRIVACY'];
+      
+      const targetView = (hash.toUpperCase() as ViewState);
+      const isTargetViewProtected = validViews.includes(targetView) && !['HOME', 'PRICING', 'SECURITY_PRIVACY'].includes(targetView);
+
+      if (isAuthenticated) {
+          if (validViews.includes(targetView)) {
+              setView(targetView);
+          } else {
+              setView('HOME'); // Default for authenticated users
+          }
+      } else { // Not authenticated
+          if (targetView === 'PRICING' || targetView === 'SECURITY_PRIVACY') { // Allow unauthenticated access to Pricing and Security/Privacy
+              setView(targetView);
+              setAuthFlowState('welcome'); // Ensure auth flow isn't blocking these views
+          } else if (targetView === 'HOME' || !validViews.includes(targetView)) {
+              setView('HOME'); // WelcomeView will render for HOME
+              setAuthFlowState('welcome');
+          } else if (isTargetViewProtected) {
+              // Trying to access protected view when unauthenticated
+              setView('HOME'); // Redirect to HOME (which renders WelcomeView)
+              setAuthFlowState('login'); // Prompt for login
+              addNotification('Please log in to access this feature.', 'error');
+          }
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    handleHashChange(); // Call on initial load
+
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange);
+    };
+  }, [isAuthenticated, setView, setAuthFlowState, addNotification]); // Added setView, setAuthFlowState, addNotification to dependencies.
+
+
+  const fetchGlobalWeather = useCallback(async (force = false) => {
+    if (!isAuthenticated && !force) return; // Only fetch if authenticated or forced
+    setIsFetchingWeather(true);
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords;
+          try {
+            const data = await geminiService.getWeatherByCoords(latitude, longitude);
+            setGlobalWeather(data);
+          } catch (error: any) {
+            if (error.message === 'RATE_LIMIT_EXCEEDED') {
+              addNotification("Weather API limit reached. Please wait a minute before refreshing.", 'info');
+            } else {
+              console.error("Error fetching global weather data:", error);
+            }
+          } finally {
+            setIsFetchingWeather(false);
+          }
+        },
+        (error) => {
+          console.warn(`Geolocation error for global weather: ${error.message}`);
+          setIsFetchingWeather(false);
+        }
+      );
+    } else {
+      console.warn("Geolocation not supported for global weather.");
+      setIsFetchingWeather(false);
+    }
+  }, [isAuthenticated, addNotification]); // Depend on isAuthenticated and addNotification
 
   useEffect(() => {
     // Check for API Key
@@ -240,30 +340,28 @@ const App: React.FC = () => {
       setApiKeyStatus('present');
     }
 
-    // Check for auth status
-    const authStatus = authService.isAuthenticated();
-    setIsAuthenticated(authStatus.authenticated);
-    setIsAdmin(authStatus.isAdmin);
-    setCurrentUser(authStatus.username);
-    setIsLoading(false);
-  }, []);
-  
-  const handleLoginSuccess = (username: string, isAdminLogin: boolean) => {
-    setIsAuthenticated(true);
-    setIsAdmin(isAdminLogin);
-    setCurrentUser(username);
+    // Initial weather fetch if authenticated
+    if (isAuthenticated) {
+      fetchGlobalWeather();
+    }
+
+  }, [isAuthenticated, fetchGlobalWeather]); // Rerun when isAuthenticated changes to handle initial login weather fetch
+
+  const handleLoginSuccess = (username: string, isAdminLogin: boolean, userSubscriptionTier: SubscriptionTier) => {
+    login(username, isAdminLogin, userSubscriptionTier); // Update AuthContext state
     setAuthFlowState('welcome'); // Reset flow state on successful login
+    setView('HOME'); // Ensure view is reset to home after login
+    fetchGlobalWeather(); // Fetch weather on login
   };
 
   const handleLogout = () => {
-    authService.logout();
-    setIsAuthenticated(false);
-    setIsAdmin(false);
-    setCurrentUser(null);
+    logout(); // Clear AuthContext state
     setAuthFlowState('welcome'); // Return to welcome page on logout
+    setView('HOME'); // Ensure view is reset for unauthenticated state
+    setGlobalWeather(null); // Clear weather on logout
   };
 
-  if (isLoading || apiKeyStatus === 'loading') {
+  if (isAuthLoading || apiKeyStatus === 'loading') {
     return <div className="w-full h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center"><p className="text-slate-400 font-semibold animate-pulse">Loading Application...</p></div>;
   }
   
@@ -288,27 +386,74 @@ const App: React.FC = () => {
      );
   }
 
+  // Render content based on authentication and current view
+  const renderUnauthenticatedContent = () => {
+    if (view === 'PRICING') {
+      return <PricingView currentTier={null} currentUser={null} onUpgrade={() => {}} onBackToHome={() => setView('HOME')} />;
+    }
+    if (view === 'SECURITY_PRIVACY') {
+      return <SecurityPrivacyView />;
+    }
+
+    switch (authFlowState) {
+      case 'welcome':
+        return <WelcomeView onNavigateToAuth={(mode) => {
+          if (mode === 'pricing') {
+            window.location.hash = '#/pricing'; // Let hashchange listener handle it
+          } else if (mode === 'security_privacy') { // New mode for Security & Privacy
+            window.location.hash = '#/security-privacy';
+          } else {
+            setAuthFlowState(mode);
+          }
+        }} />;
+      case 'login':
+      case 'signup':
+      case 'forgot_credentials':
+      case 'otp_verify':
+        return (
+          <AuthView
+            initialMode={authFlowState === 'otp_verify' ? 'signup' : authFlowState as 'login' | 'signup'}
+            onLoginSuccess={handleLoginSuccess}
+            onBack={() => setAuthFlowState('welcome')}
+            authFlowState={authFlowState}
+            setAuthFlowState={setAuthFlowState}
+          />
+        );
+      default:
+        return null;
+    }
+  };
+
+
+  return (
+    <Suspense fallback={<div className="w-full h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center"><p className="text-slate-400 font-semibold animate-pulse">Loading Application...</p></div>}>
+      {isAuthenticated && currentUser ? (
+        <AppContent 
+          onLogout={handleLogout} 
+          isAdmin={isAdmin} 
+          currentUser={currentUser} 
+          globalWeather={globalWeather}
+          refetchGlobalWeather={fetchGlobalWeather}
+          subscriptionTier={subscriptionTier} // Pass subscription tier to AppContent
+          login={login} // Pass login function to AppContent
+          view={view} // Pass view state
+          setView={setView} // Pass setView function
+        />
+      ) : (
+        renderUnauthenticatedContent()
+      )}
+    </Suspense>
+  );
+};
+
+
+const App: React.FC = () => {
   return (
     <ThemeProvider>
       <NotificationProvider>
-        <Suspense fallback={<div className="w-full h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center"><p className="text-slate-400 font-semibold animate-pulse">Loading Application...</p></div>}>
-          {isAuthenticated && currentUser ? (
-            <AppContent onLogout={handleLogout} isAdmin={isAdmin} currentUser={currentUser} />
-          ) : (
-            <>
-              {authFlowState === 'welcome' && (
-                <WelcomeView onNavigateToAuth={(mode) => setAuthFlowState(mode)} />
-              )}
-              {(authFlowState === 'login' || authFlowState === 'signup') && (
-                <AuthView
-                  initialMode={authFlowState}
-                  onLoginSuccess={handleLoginSuccess}
-                  onBack={() => setAuthFlowState('welcome')}
-                />
-              )}
-            </>
-          )}
-        </Suspense>
+        <AuthProvider> {/* Wrap with AuthProvider */}
+          <MainApplicationWrapper />
+        </AuthProvider>
         <ToastContainer />
       </NotificationProvider>
     </ThemeProvider>

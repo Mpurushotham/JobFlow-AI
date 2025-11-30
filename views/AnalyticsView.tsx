@@ -1,3 +1,4 @@
+
 import React from 'react';
 // FIX: Added YAxis to recharts import to resolve 'Cannot find name 'YAxis'' error.
 import { PieChart as RePieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';

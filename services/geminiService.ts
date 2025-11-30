@@ -1,6 +1,6 @@
-// FIX: Removed deprecated 'Schema' import as it is no longer available from @google/genai.
+
 import { GoogleGenAI, Type, GenerateContentResponse } from '@google/genai';
-import { InterviewQA, SearchResult, ParsedResume, SearchFilters, UserProfile, ResumeGrade } from '../types';
+import { InterviewQA, SearchResult, ParsedResume, SearchFilters, UserProfile, ResumeGrade, MasterResumeFitResult, LearningPath, EmailPurpose } from '../types';
 
 // Helper to get client using the environment variables
 const getClient = () => {
@@ -45,84 +45,129 @@ const handleApiCall = async <T>(apiCall: () => Promise<T>): Promise<T> => {
 export const geminiService = {
   /**
    * Searches for jobs using Google Search Grounding with advanced filters.
+   * Includes a fallback mechanism if initial filtered search yields no results.
    */
-  searchJobs: async (filters: SearchFilters): Promise<{ text: string, results: SearchResult[] }> => {
+  searchJobs: async (filters: SearchFilters): Promise<{ text: string, results: SearchResult[], wasFallback: boolean }> => {
     return handleApiCall(async () => {
         const ai = getClient();
-        
-        // Constructing a detailed prompt from filters
-        let prompt = `
-          You are a job search assistant. Find 5 recent, active job postings for: "${filters.query}".
+        const numJobsToFetch = 30; // Request more jobs initially
+
+        // FIX: Moved dateMap definition outside the conditional block to correctly infer its type
+        // and used explicit type from SearchFilters to include all possible values.
+        const dateMap: Record<SearchFilters['datePosted'], string> = { 
+          '24h': 'past 24 hours', 
+          'week': 'past week', 
+          'month': 'past month', 
+          'any': 'anytime' 
+        };
+
+        // --- Primary Search: Uses all specified filters ---
+        let primaryPrompt = `
+          You are a job search assistant. Find ${numJobsToFetch} recent, active job postings for: "${filters.query}".
           
-          Apply the following filters STRICTLY:
-          - The search results MUST be from linkedin.com. Use "site:linkedin.com" in your search.
+          Apply the following filters strictly to find relevant job posts from various sources:
         `;
 
-        if (filters.location) prompt += `- Location: "${filters.location}"\n`;
-        if (filters.industry) prompt += `- Industry: "${filters.industry}"\n`;
+        if (filters.location) primaryPrompt += `- Location: "${filters.location}"\n`;
+        if (filters.industry) primaryPrompt += `- Industry: "${filters.industry}"\n`;
 
         if (filters.datePosted !== 'any') {
-          const dateMap = { '24h': 'past 24 hours', 'week': 'past week', 'month': 'past month' };
-          prompt += `- Date Posted: Within the ${dateMap[filters.datePosted]}\n`;
+          primaryPrompt += `- Date Posted: Within the ${dateMap[filters.datePosted]}\n`;
         }
-        if (filters.experienceLevel !== 'any') prompt += `- Experience Level: "${filters.experienceLevel}"\n`;
-        if (filters.jobType !== 'any') prompt += `- Job Type: "${filters.jobType}"\n`;
-        if (filters.remote !== 'any') prompt += `- Work Arrangement: "${filters.remote}"\n`;
+        if (filters.experienceLevel !== 'any') primaryPrompt += `- Experience Level: "${filters.experienceLevel}"\n`;
+        if (filters.jobType !== 'any') primaryPrompt += `- Job Type: "${filters.jobType}"\n`;
+        if (filters.remote !== 'any') primaryPrompt += `- Work Arrangement: "${filters.remote}"\n`;
+        if (filters.salaryRange !== 'any') primaryPrompt += `- Salary Range: "${filters.salaryRange.replace(/_/g, ' ')}"\n`; // Added salaryRange
+        if (filters.seniority !== 'any') primaryPrompt += `- Seniority: "${filters.seniority.replace(/_/g, ' ')}"\n`; // Added seniority
         
-        prompt += `
+        primaryPrompt += `
           Use the Google Search tool to find actual open roles that match ALL these criteria. 
           
+          CRITICAL: For each job, provide a direct URL to the *actual job posting* on a reputable job site. If a direct, valid link cannot be found, use "N/A" for the URL. Do not provide generic search result links or company career page links unless they are the direct posting. Prioritize direct and current links.
+
           AFTER searching, output the results in a strict JSON array format inside a markdown code block.
           The JSON object for each job must have these keys:
           - title (string)
           - company (string)
           - location (string)
-          - url (string - MUST be the direct LinkedIn job URL)
+          - url (string - MUST be a direct URL to the job posting from any reputable job site, or N/A if not found. Prioritize direct links.)
           - summary (string - max 2 sentences)
 
           Example output format:
           \`\`\`json
           [
-            { "title": "Software Engineer", "company": "Tech Corp", "location": "Remote", "url": "https://www.linkedin.com/jobs/view/...", "summary": "..." }
+            { "title": "Software Engineer", "company": "Tech Corp", "location": "Remote", "url": "https://examplejobs.com/job/...", "summary": "..." }
           ]
           \`\`\`
         `;
 
-        const response: GenerateContentResponse = await ai.models.generateContent({
+        let primaryResponse: GenerateContentResponse = await ai.models.generateContent({
           model: MODEL_FAST,
-          contents: prompt,
+          contents: primaryPrompt,
           config: {
             tools: [{googleSearch: {}}],
           }
         });
 
-        const text = response.text || '';
-        let results: SearchResult[] = [];
-        
-        const parsedData = extractJSON(text);
-        if (Array.isArray(parsedData)) {
-          results = parsedData;
-        } else {
-          console.warn("Could not parse structured job data from response.");
-        }
+        let primaryParsedData = extractJSON(primaryResponse.text || '');
+        let primaryResults: SearchResult[] = Array.isArray(primaryParsedData) ? primaryParsedData : [];
 
-        return { text, results };
+        if (primaryResults.length === 0) {
+            // --- Fallback Search: If primary search yields no results, perform a broader search ---
+            const fallbackPrompt = `
+              You are a job search assistant. Find ${numJobsToFetch} recent, active job postings for: "${filters.query}" from various sources.
+              Focus only on the primary keyword and ignore other specific filters (like location, date posted, experience level, job type, remote, industry, salary range, and seniority) for this broad search.
+              
+              Use the Google Search tool to find actual open roles. 
+              
+              CRITICAL: For each job, provide a direct URL to the *actual job posting* on a reputable job site. If a direct, valid link cannot be found, use "N/A" for the URL. Do not provide generic search result links or company career page links unless they are the direct posting. Prioritize direct and current links.
+
+              AFTER searching, output the results in a strict JSON array format inside a markdown code block.
+              The JSON object for each job must have these keys:
+              - title (string)
+              - company (string)
+              - location (string)
+              - url (string - MUST be a direct URL to the job posting from any reputable job site, or N/A if not found. Prioritize direct links.)
+              - summary (string - max 2 sentences)
+              
+              Example output format:
+              \`\`\`json
+              [
+                { "title": "Software Engineer", "company": "Tech Corp", "location": "Remote", "url": "https://examplejobs.com/job/...", "summary": "..." }
+              ]
+              \`\`\`
+            `;
+
+            let fallbackResponse: GenerateContentResponse = await ai.models.generateContent({
+              model: MODEL_FAST,
+              contents: fallbackPrompt,
+              config: { tools: [{googleSearch: {}}] }
+            });
+
+            let fallbackParsedData = extractJSON(fallbackResponse.text || '');
+            let fallbackResults: SearchResult[] = Array.isArray(fallbackParsedData) ? fallbackParsedData : [];
+
+            return { text: fallbackResponse.text || '', results: fallbackResults, wasFallback: true };
+        } else {
+            return { text: primaryResponse.text || '', results: primaryResults, wasFallback: false };
+        }
     });
   },
 
   /**
    * Analyzes the job description against the resume to provide a match score and insights.
    */
-  analyzeJob: async (resume: string, jobDescription: string) => {
+  analyzeJob: async (resume: string, jobTitle: string, jobSummary: string) => { // Modified to take jobTitle and jobSummary
     return handleApiCall(async () => {
         const ai = getClient();
         
         const prompt = `
           You are an expert career coach.
           Resume: "${resume.slice(0, 10000)}"
-          Job Description: "${jobDescription.slice(0, 10000)}"
+          Job Title: "${jobTitle}"
+          Job Summary: "${jobSummary.slice(0, 10000)}"
           
-          Analyze the fit. Return a JSON object with:
+          Analyze the fit between the resume and this job title/summary. Return a JSON object with:
           1. score: number (0-100)
           2. summary: string (2 sentences max)
           3. missingSkills: string[] (key missing skills, max 5)
@@ -154,9 +199,117 @@ export const geminiService = {
   },
 
   /**
+   * Analyzes the master resume against a target job description to provide a match score and insights.
+   */
+  analyzeMasterResumeFit: async (resumeContent: string, targetJobDescription: string): Promise<MasterResumeFitResult> => {
+    return handleApiCall(async () => {
+      const ai = getClient();
+
+      const prompt = `
+        You are an expert career coach.
+        Master Resume: "${resumeContent.slice(0, 10000)}"
+        Target Job Description: "${targetJobDescription.slice(0, 10000)}"
+
+        Analyze the fit between the master resume and this target job description. Return a JSON object with:
+        1. score: number (0-100)
+        2. summary: string (2 sentences max)
+        3. missingSkills: string[] (key missing skills, max 5)
+        4. matchingSkills: string[] (key matching skills, max 5)
+      `;
+
+      const schema = {
+        type: Type.OBJECT,
+        properties: {
+          score: { type: Type.NUMBER },
+          summary: { type: Type.STRING },
+          missingSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
+          matchingSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
+        },
+        required: ['score', 'summary', 'missingSkills', 'matchingSkills']
+      };
+
+      const response = await ai.models.generateContent({
+        model: MODEL_FAST,
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: schema,
+        }
+      });
+
+      return JSON.parse(response.text || '{}');
+    });
+  },
+
+  /**
+   * Generates a skill development path for a list of missing skills.
+   */
+  generateSkillDevelopmentPath: async (missingSkills: string[]): Promise<LearningPath> => {
+    return handleApiCall(async () => {
+      const ai = getClient();
+
+      const prompt = `
+        You are an expert career development coach. For the following skills: [${missingSkills.join(', ')}],
+        generate a comprehensive learning path. For each skill, suggest 2-3 practical ways to acquire or improve it, focusing on actionable resources like online courses, personal projects, key concepts, or relevant tools.
+
+        Return a JSON object with the following structure:
+        - summary: string (a brief intro to the learning path, 2 sentences max)
+        - skillTopics: array of objects, each with:
+          - skill: string (the name of the skill)
+          - resources: array of objects, each with:
+            - type: "Course" | "Project" | "Concept" | "Tool"
+            - title: string (name of the resource/project/concept)
+            - description: string (brief explanation)
+            - link?: string (optional URL for courses/tools, GitHub for projects etc.)
+      `;
+
+      const schema = {
+        type: Type.OBJECT,
+        properties: {
+          summary: { type: Type.STRING },
+          skillTopics: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                skill: { type: Type.STRING },
+                resources: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      type: { type: Type.STRING, enum: ['Course', 'Project', 'Concept', 'Tool'] },
+                      title: { type: Type.STRING },
+                      description: { type: Type.STRING },
+                      link: { type: Type.STRING },
+                    },
+                    required: ['type', 'title', 'description'],
+                  },
+                },
+              },
+              required: ['skill', 'resources'],
+            },
+          },
+        },
+        required: ['summary', 'skillTopics'],
+      };
+
+      const response = await ai.models.generateContent({
+        model: MODEL_FAST,
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: schema,
+        }
+      });
+      return JSON.parse(response.text || '{}');
+    });
+  },
+
+  /**
    * Rewrites the user's resume for a specific job.
    */
-  tailorResume: async (resume: string, jobDescription: string) => {
+  tailorResume: async (resume: string, jobDescription: string, profile: UserProfile) => {
     return handleApiCall(async () => {
         const ai = getClient();
         
@@ -173,7 +326,13 @@ export const geminiService = {
           ${jobDescription}
           ---
 
-          Task: Rewrite the 'Original Resume' to be perfectly tailored for the 'Target Job Description' and to pass successfully through any Applicant Tracking System (ATS).
+          User Profile (for Contact Info - ONLY include if value is provided):
+          Name: ${profile.name || '[Candidate Name]'}
+          Email: ${profile.email ? profile.email : ''}
+          Phone: ${profile.phone ? profile.phone : ''}
+          LinkedIn: ${profile.linkedin ? profile.linkedin : ''}
+          GitHub: ${profile.github ? profile.github : ''}
+          Website: ${profile.website ? profile.website : ''}
 
           **CRITICAL ATS-OPTIMIZATION RULES:**
 
@@ -183,23 +342,33 @@ export const geminiService = {
               -   Mirror the language of the job description where appropriate (e.g., if they say "team collaboration," use that phrase).
 
           2.  **STRUCTURE & FORMATTING**:
-              -   Use a clean, single-column layout. Do NOT use tables or multi-column formats.
-              -   **HEADER**: The first line must be the candidate's name as a Markdown H1 (e.g., # JANE DOE). The second line must contain contact info: Email | Phone | LinkedIn URL.
-              -   **SUMMARY SECTION**: Start with a "## SUMMARY" section. This must be a concise, 2-3 sentence paragraph that immediately highlights the candidate's most relevant qualifications and experience for THIS specific job.
-              -   **STANDARD SECTION HEADERS**: Use these exact Markdown H2 headers: ## SUMMARY, ## SKILLS, ## WORK EXPERIENCE, ## PROJECTS, ## EDUCATION.
-              -   **SKILLS SECTION**: Group skills by category (e.g., **Programming Languages:** Java, Python; **Databases:** SQL, MongoDB).
+              -   Use a clean, single-column layout. **Do NOT use tables, multi-column formats, or embedded images/icons.**
+              -   **HEADER**: The resume must start with a clear, concise header.
+                  -   The very first line must be the candidate's full name as a Markdown H1 (e.g., # JANE DOE).
+                  -   Immediately following, on a single line, include contact information separated by pipes. Only include the fields for which data is available from the 'User Profile'.
+                      Example: Email | Phone | LinkedIn URL | GitHub URL | Portfolio Website
+              -   **STANDARD SECTION HEADERS**: Use these exact Markdown H2 headers for primary sections. Omit sections if no relevant content can be extracted from the original resume or profile.
+                  ## SUMMARY
+                  ## SKILLS
+                  ## WORK EXPERIENCE
+                  ## PROJECTS
+                  ## EDUCATION
+                  ## CERTIFICATIONS
+                  ## AWARDS
+              -   **SKILLS SECTION**: Group skills by relevant categories (e.g., **Programming Languages:** Java, Python; **Databases:** SQL, MongoDB; **Tools:** Jira, Figma).
               -   **WORK EXPERIENCE FORMAT**: For each position, follow this precise format:
                   **Company Name** | City, State
-                  *Job Title* | Month Year - Month Year
-                  - Use bullet points starting with strong action verbs (e.g., Engineered, Managed, Led, Developed).
-                  - Quantify achievements with metrics wherever possible (e.g., "Increased user engagement by 15%," "Reduced server costs by 25%").
-                  - Tailor the bullet points to reflect the responsibilities listed in the job description.
+                  *Job Title* | Month Year – Month Year
+                  -   Use bullet points (hyphens) starting with strong action verbs (e.g., Engineered, Managed, Led, Developed).
+                  -   Quantify achievements with metrics wherever possible (e.g., "Increased user engagement by 15%," "Reduced server costs by 25%").
+                  -   Tailor the bullet points to reflect the responsibilities and impact listed in the job description.
 
           3.  **FINAL INSTRUCTIONS**:
               -   The entire output must be in Markdown.
               -   Do NOT include any conversational text, introductions, or explanations like "Here is the tailored resume."
               -   Do NOT wrap the final output in Markdown code fences (\`\`\`).
               -   Start the response DIRECTLY with the H1 name.
+              -   Keep the resume concise, ideally 1-2 pages for most roles.
         `;
 
         const response = await ai.models.generateContent({
@@ -345,10 +514,12 @@ export const geminiService = {
   /**
    * Gets the current weather for a location using coordinates.
    */
-  getWeatherByCoords: async (latitude: number, longitude: number): Promise<{ city: string; description: string; temperature: number } | null> => {
+  // FIX: Updated return type to include `country`
+  getWeatherByCoords: async (latitude: number, longitude: number): Promise<{ city: string; country: string; description: string; temperature: number } | null> => {
     return handleApiCall(async () => {
         const ai = getClient();
-        const prompt = `What is the current city name, weather description, and temperature in Celsius for latitude ${latitude} and longitude ${longitude}? Use Google Search for real-time data. Return a JSON object inside a markdown code block with keys "city" (string), "description" (e.g., "Sunny", "Partly Cloudy", "Rain"), and "temperature" (a number).`;
+        // FIX: Updated prompt to explicitly ask for `country`
+        const prompt = `What is the current city name, country, weather description, and temperature in Celsius for latitude ${latitude} and longitude ${longitude}? Use Google Search for real-time data. Return a JSON object inside a markdown code block with keys "city" (string), "country" (string), "description" (e.g., "Sunny", "Partly Cloudy", "Rain"), and "temperature" (a number).`;
         
         const response = await ai.models.generateContent({
           model: MODEL_FAST,
@@ -358,26 +529,6 @@ export const geminiService = {
           },
         });
 
-        return extractJSON(response.text || 'null');
-    });
-  },
-
-  /**
-   * Gets the current weather for a location.
-   */
-  getWeather: async (city: string, country: string): Promise<{ description: string; temperature: number } | null> => {
-    return handleApiCall(async () => {
-        const ai = getClient();
-        const prompt = `What is the current weather and temperature in Celsius for ${city}, ${country}? Use Google Search for real-time data. Return a JSON object inside a markdown code block with keys "description" (e.g., "Sunny", "Partly Cloudy", "Rain") and "temperature" (a number).`;
-        
-        const response = await ai.models.generateContent({
-          model: MODEL_FAST,
-          contents: prompt,
-          config: {
-            tools: [{ googleSearch: {} }],
-          },
-        });
-        
         return extractJSON(response.text || 'null');
     });
   },
@@ -513,6 +664,77 @@ export const geminiService = {
           contents: prompt,
         });
         return response.text || "Failed to draft the message.";
+    });
+  },
+
+  /**
+   * Composes various types of emails using specific prompts.
+   */
+  composeEmail: async (emailPurpose: EmailPurpose, context: string, profile: UserProfile): Promise<string> => {
+    return handleApiCall(async () => {
+      const ai = getClient();
+      let prompt: string;
+      const userName = profile.name || 'Job Seeker';
+      const userEmail = profile.email || 'your_email@example.com';
+      const userPhone = profile.phone || 'your_phone_number';
+      const userTitle = profile.title || profile.targetRoles || 'job seeker';
+      const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+      // Dynamically construct prompt based on EmailPurpose
+      switch (emailPurpose) {
+        case EmailPurpose.PROFESSIONAL_REWRITE:
+          prompt = `Act as a senior communication specialist. Rewrite this email to sound professional, clear, concise, and polite while keeping my original intent. Improve tone, structure, grammar, and flow. My email: ${context}`;
+          break;
+        case EmailPurpose.COLD_EMAIL:
+          prompt = `Write a persuasive, short, high-impact cold email for this purpose: ${context}. Include a strong hook, value proposition, credibility (mentioning expertise as a ${userTitle}), and a simple CTA. Make it sound human, confident, and non-salesy.
+          Sender Info:
+          Name: ${userName}
+          Email: ${userEmail}
+          Phone: ${userPhone}
+          Current Date: ${currentDate}`;
+          break;
+        case EmailPurpose.CORPORATE_REPLY:
+          prompt = `Craft a professional reply to this email I received: "${context}". Maintain a respectful tone, address all points clearly, and write a response that strengthens trust and communication.
+          Sender Info:
+          Name: ${userName}
+          Email: ${userEmail}
+          Phone: ${userPhone}`;
+          break;
+        case EmailPurpose.APOLOGY_EMAIL:
+          prompt = `Write a sincere, mature apology email for this situation: ${context}. Take accountability, express genuine understanding, offer a corrective step, and propose a positive way forward.
+          Sender Info:
+          Name: ${userName}
+          Email: ${userEmail}`;
+          break;
+        case EmailPurpose.FOLLOW_UP:
+          prompt = `Write a polite and effective follow-up email reminding about: "${context}". Keep it respectful, non-pushy, and clear. Include a simple CTA that encourages a response.
+          Sender Info:
+          Name: ${userName}
+          Email: ${userEmail}
+          Phone: ${userPhone}`;
+          break;
+        case EmailPurpose.SIMPLIFY_EMAIL:
+          prompt = `Rewrite my email to be shorter, clearer, and easier to understand while keeping it professional and respectful. Remove unnecessary wording but increase impact. Email: ${context}`;
+          break;
+        case EmailPurpose.SALES_EMAIL:
+          prompt = `Write a high-conversion sales email for my product/service described as: "${context}". Include a strong hook, emotional benefits, social proof, clear explanation, and a compelling CTA. Keep it conversational and value-driven, not pushy.
+          Sender Info:
+          Name: ${userName}
+          Email: ${userEmail}
+          Phone: ${userPhone}`;
+          break;
+        default:
+          throw new Error('Invalid email purpose provided.');
+      }
+
+      const response = await ai.models.generateContent({
+        model: MODEL_FAST,
+        contents: prompt,
+      });
+
+      let text = response.text || "Failed to generate email.";
+      text = text.replace(/^```markdown\n/, '').replace(/^```\n/, '').replace(/\n```$/, '');
+      return text;
     });
   },
 };

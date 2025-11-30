@@ -1,20 +1,22 @@
 
 
 import React, { useState, useEffect } from 'react';
-import { ChevronLeft, Building, MapPin, Edit3, ExternalLink, Target, FileText, MessageSquare, UserCircle, Sparkles, CheckCircle, XCircle, FileDown, History, StickyNote, CalendarPlus, Send, Trophy, Paperclip, XOctagon, Plus, Sun, Cloud, CloudRain, CloudSnow, Wind, RefreshCw } from 'lucide-react';
+import { ChevronLeft, Building, MapPin, Edit3, ExternalLink, Target, FileText, MessageSquare, UserCircle, Sparkles, CheckCircle, XCircle, FileDown, History, StickyNote, CalendarPlus, Send, Trophy, Paperclip, XOctagon, Plus, RefreshCw, Info, TrendingUp, CalendarDays } from 'lucide-react'; // Added CalendarDays for Google Calendar
 import ReactMarkdown from 'react-markdown';
-import { Job, JobStatus, UserProfile, JobActivity, JobActivityType } from '../types';
+import { Job, JobStatus, UserProfile, JobActivity, JobActivityType, SubscriptionTier } from '../types';
 import { geminiService } from '../services/geminiService';
 import { handlePrintPDF } from '../utils/exportUtils';
 import { ResumeMarkdownComponents } from '../utils/resumeMarkdown';
 import { LoadingOverlay } from '../components/LoadingOverlay';
 import { useNotifications } from '../context/NotificationContext';
+import { generateGoogleCalendarLink } from '../utils/calendarUtils'; // Import Google Calendar utility
 
 interface WorkspaceViewProps {
   job: Job;
   profile: UserProfile;
   onUpdateJob: (j: Job) => void;
   onBack: () => void;
+  subscriptionTier: SubscriptionTier | null; // New: User's subscription tier
 }
 
 const STATUS_LABELS = {
@@ -43,61 +45,29 @@ const activityColors: { [key in JobActivityType]: string } = {
   REJECTION: 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400',
 };
 
-const getWeatherIcon = (description: string): React.ReactElement => {
-    const desc = description.toLowerCase();
-    if (desc.includes('sun') || desc.includes('clear')) return <Sun size={16} className="text-yellow-500" />;
-    if (desc.includes('cloud')) return <Cloud size={16} className="text-slate-400" />;
-    if (desc.includes('rain') || desc.includes('drizzle')) return <CloudRain size={16} className="text-blue-500" />;
-    if (desc.includes('snow')) return <CloudSnow size={16} className="text-cyan-300" />;
-    if (desc.includes('storm') || desc.includes('thunder')) return <CloudRain size={16} className="text-indigo-500" />;
-    if (desc.includes('mist') || desc.includes('fog')) return <Wind size={16} className="text-slate-400" />;
-    return <Cloud size={16} className="text-slate-400" />;
-};
-
 
 const WorkspaceView: React.FC<WorkspaceViewProps> = ({ 
   job, 
   profile, 
   onUpdateJob, 
-  onBack 
+  onBack,
+  subscriptionTier // Destructure subscriptionTier
 }) => {
   const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'ACTIVITY' | 'RESUME' | 'COVER_LETTER' | 'INTERVIEW'>('OVERVIEW');
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState(job);
-  const [isFetchingWeather, setIsFetchingWeather] = useState(false);
-  const { addNotification } = useNotifications();
-
-  // Activity Log State
-  const [newActivityContent, setNewActivityContent] = useState('');
+  // NEW: State for new activity form fields
   const [newActivityType, setNewActivityType] = useState<JobActivityType>('NOTE');
+  const [newActivityContent, setNewActivityContent] = useState('');
   const [interviewStage, setInterviewStage] = useState('');
   const [interviewDate, setInterviewDate] = useState('');
   const [interviewNotes, setInterviewNotes] = useState('');
+  // Removed isFetchingWeather state
+  const { addNotification } = useNotifications();
 
-  const fetchWeather = async (force = false) => {
-    if (job.city && job.country && (!job.weather || force)) {
-        setIsFetchingWeather(true);
-        try {
-            const weatherData = await geminiService.getWeather(job.city, job.country);
-            if (weatherData) {
-                onUpdateJob({ ...job, weather: weatherData.description, temperature: weatherData.temperature });
-            }
-        } catch (e: any) {
-            if (e.message !== 'RATE_LIMIT_EXCEEDED') {
-              console.error("Weather fetch failed", e);
-            } else {
-              addNotification("Weather API limit reached. Please wait a minute.", 'info');
-            }
-        } finally {
-            setIsFetchingWeather(false);
-        }
-    }
-  };
-
-  useEffect(() => {
-    fetchWeather();
-  }, [job.id, job.city, job.country]);
+  // Flag for AI Pro features
+  const isAIPro = subscriptionTier === SubscriptionTier.AI_PRO;
 
 
   useEffect(() => {
@@ -111,10 +81,20 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
   };
 
   const handleAnalyze = async () => {
-    if (!profile.resumeContent) return addNotification("Please add your resume in the Profile section first.", 'error');
+    if (!profile.resumeContent) {
+      addNotification("Please add your resume in the Profile section first.", 'error');
+      return;
+    }
+    // Tier check for AI Pro feature
+    if (!isAIPro) {
+      addNotification("This feature requires an AI Pro subscription. Upgrade to unlock!", 'info');
+      return;
+    }
+
     setLoading(true);
     try {
-      const result = await geminiService.analyzeJob(profile.resumeContent, job.description);
+      // FIX: Provided all three required arguments (profile.resumeContent, job.title, job.description) to the `geminiService.analyzeJob` function.
+      const result = await geminiService.analyzeJob(profile.resumeContent, job.title, job.description);
       onUpdateJob({ 
         ...job, 
         matchScore: result.score, 
@@ -133,10 +113,19 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
   };
 
   const handleTailorResume = async () => {
-    if (!profile.resumeContent) return addNotification("Please add your resume in the Profile section first.", 'error');
+    if (!profile.resumeContent) {
+      addNotification("Please add your resume in the Profile section first.", 'error');
+      return;
+    }
+    // Tier check for AI Pro feature
+    if (!isAIPro) {
+      addNotification("This feature requires an AI Pro subscription. Upgrade to unlock!", 'info');
+      return;
+    }
+
     setLoading(true);
     try {
-      const tailored = await geminiService.tailorResume(profile.resumeContent, job.description);
+      const tailored = await geminiService.tailorResume(profile.resumeContent, job.description, profile);
       onUpdateJob({ ...job, tailoredResume: tailored });
       addNotification('Resume tailored successfully!', 'success');
     } catch (e: any) {
@@ -151,7 +140,16 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
   };
 
   const handleGenerateCover = async () => {
-    if (!profile.resumeContent) return addNotification("Please add your resume in the Profile section first.", 'error');
+    if (!profile.resumeContent) {
+      addNotification("Please add your resume in the Profile section first.", 'error');
+      return;
+    }
+    // Tier check for AI Pro feature
+    if (!isAIPro) {
+      addNotification("This feature requires an AI Pro subscription. Upgrade to unlock!", 'info');
+      return;
+    }
+
     setLoading(true);
     try {
       const letter = await geminiService.generateCoverLetter(
@@ -175,7 +173,16 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
   };
 
   const handleInterviewPrep = async () => {
-    if (!profile.resumeContent) return addNotification("Please add your resume in the Profile section first.", 'error');
+    if (!profile.resumeContent) {
+      addNotification("Please add your resume in the Profile section first.", 'error');
+      return;
+    }
+    // Tier check for AI Pro feature
+    if (!isAIPro) {
+      addNotification("This feature requires an AI Pro subscription. Upgrade to unlock!", 'info');
+      return;
+    }
+
     setLoading(true);
     try {
       const prep = await geminiService.generateInterviewPrep(profile.resumeContent, job.description);
@@ -211,6 +218,9 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
   const handleAddActivity = () => {
     let content = '';
     let activityDate = Date.now();
+    let eventTitle = '';
+    let eventDescription = '';
+    let eventLocation = '';
 
     if (newActivityType === 'INTERVIEW') {
       if (!interviewStage || !interviewDate) {
@@ -219,6 +229,9 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
       }
       activityDate = new Date(interviewDate).getTime();
       content = `Stage: ${interviewStage}\nNotes: ${interviewNotes || 'No notes provided.'}`;
+      eventTitle = `${job.title} Interview - ${interviewStage}`;
+      eventDescription = `Company: ${job.company}\n${content}\nJob Link: ${job.url || 'N/A'}`;
+      eventLocation = `${job.city || ''}${job.city && job.country ? ', ' : ''}${job.country || ''}`;
     } else {
       if (!newActivityContent.trim()) {
         addNotification('Please enter some content for the activity.', 'error');
@@ -237,6 +250,17 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
     onUpdateJob({ ...job, activity: updatedActivity });
     addNotification('Activity logged successfully!', 'success');
     
+    // If it's an interview, generate Google Calendar link
+    if (newActivityType === 'INTERVIEW') {
+      const calendarLink = generateGoogleCalendarLink({
+        title: eventTitle,
+        startTime: activityDate,
+        description: eventDescription,
+        location: eventLocation,
+      });
+      window.open(calendarLink, '_blank', 'noopener,noreferrer');
+    }
+
     // Reset forms
     setNewActivityContent('');
     setNewActivityType('NOTE');
@@ -271,18 +295,6 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
             <div className="flex items-center text-gray-500 dark:text-slate-400 space-x-3 mt-1 text-sm">
               <span className="flex items-center gap-1 font-medium"><Building size={14} /> {job.company}</span>
               {(job.city || job.country) && <><span className="text-gray-300">•</span> <span className="flex items-center gap-1"><MapPin size={14} /> {job.city}{job.city && job.country ? ', ' : ''}{job.country}</span></>}
-              {job.weather && job.temperature !== undefined && (
-                 <>
-                    <span className="text-gray-300">•</span>
-                    <div className="flex items-center gap-2 bg-gray-50 dark:bg-slate-700/50 px-2 py-0.5 rounded-md border border-gray-100 dark:border-slate-700 text-xs font-medium">
-                        {getWeatherIcon(job.weather)}
-                        <span className="text-gray-700 dark:text-slate-300">{job.temperature}°C, {job.weather}</span>
-                        <button onClick={() => fetchWeather(true)} className="ml-1 text-gray-400 hover:text-indigo-500 disabled:opacity-50" disabled={isFetchingWeather} title="Refresh weather">
-                          <RefreshCw size={12} className={isFetchingWeather ? 'animate-spin' : ''} />
-                        </button>
-                    </div>
-                 </>
-              )}
             </div>
           </div>
         </div>
@@ -396,8 +408,16 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
               <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm sticky top-0">
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="font-bold text-gray-800 dark:text-white text-lg">AI Match</h3>
-                  <button onClick={handleAnalyze} className="text-xs bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-4 py-2 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/50 font-bold transition-colors shadow-sm">
-                    {analysisData ? 'Re-Analyze' : 'Run Analysis'}
+                  <button 
+                    onClick={handleAnalyze} 
+                    className={`text-xs px-4 py-2 rounded-lg font-bold transition-colors shadow-sm flex items-center gap-1
+                      ${!profile.resumeContent || !isAIPro ? 'bg-gray-200 dark:bg-slate-700 text-gray-500 dark:text-slate-400 cursor-not-allowed' :
+                        'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50'
+                      }`}
+                    title={!profile.resumeContent ? "Add your master resume in Profile to use this feature" : !isAIPro ? "AI Pro feature. Upgrade to unlock." : ""}
+                    disabled={!profile.resumeContent || !isAIPro}
+                  >
+                    <Sparkles size={16} /> {analysisData ? 'Re-Analyze' : 'Run Analysis'}
                   </button>
                 </div>
                 
@@ -443,6 +463,11 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
                   <div className="text-center py-12 text-gray-400 dark:text-slate-600 text-sm">
                     <Target size={48} className="mx-auto mb-4 opacity-20" />
                     <p>Run analysis to see how well your resume matches this job.</p>
+                    {!isAIPro && (
+                      <p className="text-sm text-red-500 dark:text-red-400 mt-3 flex items-center justify-center gap-1">
+                        <Info size={16}/> AI Pro feature. Upgrade to unlock this analysis.
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -507,6 +532,25 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
                        <p className="text-xs text-gray-400 dark:text-slate-500">{new Date(item.date).toLocaleString()}</p>
                      </div>
                      <p className="mt-2 text-gray-700 dark:text-slate-300 bg-white dark:bg-slate-800 p-4 rounded-xl border border-gray-100 dark:border-slate-700 shadow-sm whitespace-pre-wrap">{item.content}</p>
+                     {item.type === 'INTERVIEW' && (
+                        <button 
+                          onClick={() => {
+                            const eventTitle = `${job.title} Interview - Stage: ${item.content.split('\n')[0].replace('Stage: ', '')}`;
+                            const eventDescription = `Company: ${job.company}\n${item.content}\nJob Link: ${job.url || 'N/A'}`;
+                            const eventLocation = `${job.city || ''}${job.city && job.country ? ', ' : ''}${job.country || ''}`;
+                            const calendarLink = generateGoogleCalendarLink({
+                                title: eventTitle,
+                                startTime: item.date,
+                                description: eventDescription,
+                                location: eventLocation,
+                            });
+                            window.open(calendarLink, '_blank', 'noopener,noreferrer');
+                          }}
+                          className="mt-3 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 px-4 py-2 rounded-xl text-xs font-bold hover:bg-purple-200 dark:hover:bg-purple-900/50 flex items-center gap-2 transition-colors"
+                        >
+                          <CalendarDays size={16} /> Add to Google Calendar
+                        </button>
+                     )}
                   </div>
                 </div>
               )) : (
@@ -525,7 +569,15 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
             <div className="flex justify-between items-center mb-6">
               <div>
                  <h3 className="font-bold text-gray-800 dark:text-white text-lg">Tailored Resume</h3>
-                 <p className="text-gray-500 dark:text-slate-400 text-sm">Optimized for ATS and specific job requirements.</p>
+                 <p className="text-gray-500 dark:text-slate-400 text-sm flex items-center gap-1">
+                  Optimized for ATS and specific job requirements.
+                  <button 
+                    title="Your master resume (from Profile) is used as a base. Ensure it's up-to-date for best tailoring results."
+                    className="ml-2 text-indigo-400 hover:text-indigo-600 transition-colors"
+                  >
+                    <Info size={16} />
+                  </button>
+                 </p>
               </div>
               <div className="flex gap-2">
                 {job.tailoredResume && (
@@ -536,20 +588,34 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
                         <FileDown size={16} /> Download PDF
                     </button>
                 )}
-                <button onClick={handleTailorResume} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-sm hover:bg-indigo-700 flex items-center gap-2 font-bold shadow-md shadow-indigo-200 dark:shadow-none">
+                <button 
+                  onClick={handleTailorResume} 
+                  className={`px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-md shadow-indigo-200 dark:shadow-none transition-colors
+                    ${!profile.resumeContent || !isAIPro ? 'bg-gray-200 dark:bg-slate-700 text-gray-500 dark:text-slate-400 cursor-not-allowed' :
+                      'bg-indigo-600 text-white hover:bg-indigo-700'
+                    }`}
+                  title={!profile.resumeContent ? "Add your master resume in Profile to use this feature" : !isAIPro ? "AI Pro feature. Upgrade to unlock." : ""}
+                  disabled={!profile.resumeContent || !isAIPro}
+                >
                     <Sparkles size={16} /> Generate Tailored Version
                 </button>
               </div>
             </div>
-            <div className="flex-1 bg-white dark:bg-slate-800 p-8 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-y-auto">
+            <div className="flex-1 bg-gray-100 dark:bg-slate-900 p-6 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-inner overflow-y-auto relative resume-container">
               {job.tailoredResume ? (
-                 <div className="prose prose-sm dark:prose-invert max-w-none">
+                 <div className="bg-white dark:bg-slate-800 p-8 md:p-12 rounded-xl shadow-md min-h-full prose prose-sm dark:prose-invert max-w-none">
                     <ReactMarkdown components={ResumeMarkdownComponents}>{job.tailoredResume}</ReactMarkdown>
                  </div>
               ) : (
                 <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-slate-600">
                   <FileText size={64} className="mb-6 opacity-10" />
                   <p className="font-medium">No tailored resume generated yet.</p>
+                  <p className="text-sm mt-2 max-w-xs text-center">Click "Generate Tailored Version" to create one based on your master resume and this job description.</p>
+                  {!isAIPro && (
+                    <p className="text-sm text-red-500 dark:text-red-400 mt-3 flex items-center justify-center gap-1">
+                      <Info size={16}/> AI Pro feature. Upgrade to unlock this tool.
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -562,7 +628,15 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h3 className="font-bold text-gray-800 dark:text-white text-lg">Cover Letter</h3>
-                <p className="text-gray-500 dark:text-slate-400 text-sm">Personalized and enthusiastic.</p>
+                <p className="text-gray-500 dark:text-slate-400 text-sm flex items-center gap-1">
+                  Personalized and enthusiastic.
+                  <button 
+                    title="AI uses your profile name, email, and phone for the cover letter's contact information."
+                    className="ml-2 text-indigo-400 hover:text-indigo-600 transition-colors"
+                  >
+                    <Info size={16} />
+                  </button>
+                </p>
               </div>
               <div className="flex gap-2">
                 {job.coverLetter && (
@@ -573,7 +647,15 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
                         <FileDown size={16} /> Download PDF
                     </button>
                 )}
-                <button onClick={handleGenerateCover} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-sm hover:bg-indigo-700 flex items-center gap-2 font-bold shadow-md shadow-indigo-200 dark:shadow-none">
+                <button 
+                  onClick={handleGenerateCover} 
+                  className={`px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-md shadow-indigo-200 dark:shadow-none transition-colors
+                    ${!profile.resumeContent || !isAIPro ? 'bg-gray-200 dark:bg-slate-700 text-gray-500 dark:text-slate-400 cursor-not-allowed' :
+                      'bg-indigo-600 text-white hover:bg-indigo-700'
+                    }`}
+                  title={!profile.resumeContent ? "Add your master resume in Profile to use this feature" : !isAIPro ? "AI Pro feature. Upgrade to unlock." : ""}
+                  disabled={!profile.resumeContent || !isAIPro}
+                >
                     <Sparkles size={16} /> Generate Letter
                 </button>
               </div>
@@ -585,6 +667,11 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
                 <div className="flex flex-col items-center justify-center h-full text-gray-400 dark:text-slate-600 font-sans">
                   <MessageSquare size={64} className="mb-6 opacity-10" />
                   <p className="font-medium">Generate a compelling cover letter for {job.company}.</p>
+                  {!isAIPro && (
+                    <p className="text-sm text-red-500 dark:text-red-400 mt-3 flex items-center justify-center gap-1">
+                      <Info size={16}/> AI Pro feature. Upgrade to unlock this tool.
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -597,9 +684,25 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
             <div className="flex justify-between items-center mb-6">
               <div>
                  <h3 className="font-bold text-gray-800 dark:text-white text-lg">Interview Preparation</h3>
-                 <p className="text-gray-500 dark:text-slate-400 text-sm">Practice questions and STAR method answers.</p>
+                 <p className="text-gray-500 dark:text-slate-400 text-sm flex items-center gap-1">
+                  Practice questions and STAR method answers.
+                  <button 
+                    title="The AI generates tailored questions based on your resume and the job description, providing STAR method answers and tips."
+                    className="ml-2 text-indigo-400 hover:text-indigo-600 transition-colors"
+                  >
+                    <Info size={16} />
+                  </button>
+                 </p>
               </div>
-              <button onClick={handleInterviewPrep} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-sm hover:bg-indigo-700 flex items-center gap-2 font-bold shadow-md shadow-indigo-200 dark:shadow-none">
+              <button 
+                onClick={handleInterviewPrep} 
+                className={`px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-md shadow-indigo-200 dark:shadow-none transition-colors
+                  ${!profile.resumeContent || !isAIPro ? 'bg-gray-200 dark:bg-slate-700 text-gray-500 dark:text-slate-400 cursor-not-allowed' :
+                    'bg-indigo-600 text-white hover:bg-indigo-700'
+                  }`}
+                title={!profile.resumeContent ? "Add your master resume in Profile to use this feature" : !isAIPro ? "AI Pro feature. Upgrade to unlock." : ""}
+                disabled={!profile.resumeContent || !isAIPro}
+              >
                 <Sparkles size={16} /> Generate Questions
               </button>
             </div>
@@ -630,6 +733,11 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
                 <div className="flex flex-col items-center justify-center h-64 text-gray-400 dark:text-slate-600">
                   <UserCircle size={64} className="mb-6 opacity-10" />
                   <p className="font-medium">Get personalized interview questions and answer strategies.</p>
+                  {!isAIPro && (
+                    <p className="text-sm text-red-500 dark:text-red-400 mt-3 flex items-center justify-center gap-1">
+                      <Info size={16}/> AI Pro feature. Upgrade to unlock this tool.
+                    </p>
+                  )}
                 </div>
               )}
             </div>

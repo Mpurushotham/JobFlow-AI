@@ -1,5 +1,6 @@
 
-import React from 'react';
+
+import React, { useState } from 'react';
 import { Plus, Trash2, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Job, JobActivity, JobStatus } from '../types';
 
@@ -18,6 +19,8 @@ const JobsView: React.FC<JobsViewProps> = ({
   onDeleteJob,
   onUpdateJob
 }) => {
+  const [draggingJobId, setDraggingJobId] = useState<string | null>(null);
+  const [hoveredColumn, setHoveredColumn] = useState<JobStatus | null>(null);
   
   const columns = [
     { id: JobStatus.WISHLIST, label: 'Wishlist', color: 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700' },
@@ -53,6 +56,54 @@ const JobsView: React.FC<JobsViewProps> = ({
     }
   };
 
+  const handleDragStart = (e: React.DragEvent, jobId: string) => {
+    setDraggingJobId(jobId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', jobId);
+  };
+
+  const handleDragOver = (e: React.DragEvent, columnId: JobStatus) => {
+    e.preventDefault(); // Necessary to allow dropping
+    if (draggingJobId) {
+      setHoveredColumn(columnId);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setHoveredColumn(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetStatus: JobStatus) => {
+    e.preventDefault();
+    const jobId = e.dataTransfer.getData('text/plain');
+    const jobToMove = jobs.find(j => j.id === jobId);
+
+    if (jobToMove && jobToMove.status !== targetStatus) {
+      let updatedJob = { ...jobToMove, status: targetStatus };
+      
+      // Log 'SUBMISSION' activity if moving to 'APPLIED' from another status
+      if (jobToMove.status !== JobStatus.APPLIED && targetStatus === JobStatus.APPLIED) {
+        const submissionActivity: JobActivity = {
+          id: `activity-${Date.now()}`,
+          date: Date.now(),
+          type: 'SUBMISSION',
+          content: `Application submitted on ${new Date().toLocaleDateString()}.`
+        };
+        const existingActivities = updatedJob.activity || [];
+        updatedJob.activity = [...existingActivities, submissionActivity].sort((a, b) => b.date - a.date);
+      }
+
+      onUpdateJob(updatedJob);
+    }
+    setDraggingJobId(null);
+    setHoveredColumn(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggingJobId(null);
+    setHoveredColumn(null);
+  };
+
   return (
     <div className="flex flex-col h-full overflow-hidden animate-fade-in">
       <div className="flex justify-between items-center mb-6 px-1">
@@ -73,7 +124,15 @@ const JobsView: React.FC<JobsViewProps> = ({
           {columns.map(col => {
              const colJobs = getJobsByStatus(col.id as JobStatus);
              return (
-              <div key={col.id} className="w-80 flex flex-col h-full bg-gray-100/50 dark:bg-slate-900/50 rounded-3xl border border-gray-200 dark:border-slate-800">
+              <div 
+                key={col.id} 
+                className={`w-80 flex flex-col h-full bg-gray-100/50 dark:bg-slate-900/50 rounded-3xl border border-gray-200 dark:border-slate-800
+                  ${hoveredColumn === col.id ? 'ring-2 ring-offset-2 ring-indigo-500 dark:ring-offset-slate-900' : ''}
+                `}
+                onDragOver={(e) => handleDragOver(e, col.id)}
+                onDrop={(e) => handleDrop(e, col.id)}
+                onDragLeave={handleDragLeave}
+              >
                 <div className={`p-4 flex items-center justify-between border-b ${col.color} bg-opacity-30 rounded-t-3xl backdrop-blur-sm`}>
                   <div className="flex items-center gap-2">
                     <span className={`px-2.5 py-1 rounded-lg text-xs font-bold uppercase tracking-wider border ${col.color} bg-white/50 dark:bg-slate-800/50`}>{col.label}</span>
@@ -86,7 +145,12 @@ const JobsView: React.FC<JobsViewProps> = ({
                     <div 
                       key={job.id} 
                       onClick={() => onSelectJob(job)} 
-                      className="group bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 hover:shadow-lg hover:border-indigo-200 dark:hover:border-indigo-800 cursor-pointer transition-all relative animate-scale-in"
+                      draggable="true"
+                      onDragStart={(e) => handleDragStart(e, job.id)}
+                      onDragEnd={handleDragEnd}
+                      className={`group bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 hover:shadow-lg hover:border-indigo-200 dark:hover:border-indigo-800 cursor-pointer transition-all relative animate-scale-in
+                        ${draggingJobId === job.id ? 'opacity-40 border-indigo-500 ring-2 ring-indigo-500' : ''}
+                      `}
                     >
                       <div className="flex justify-between items-start mb-3">
                         <div className="w-10 h-10 bg-gray-50 dark:bg-slate-700 rounded-xl flex items-center justify-center text-gray-700 dark:text-slate-300 font-bold text-sm border border-gray-100 dark:border-slate-600">
