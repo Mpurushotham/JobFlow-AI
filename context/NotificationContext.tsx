@@ -5,12 +5,14 @@ export type NotificationType = 'success' | 'error' | 'info';
 
 export interface Notification {
   id: string;
-  message: string;
+  // FIX: Allow message to be a ReactNode to support JSX elements in notifications
+  message: string | ReactNode;
   type: NotificationType;
 }
 
 interface NotificationContextType {
-  addNotification: (message: string, type: NotificationType) => void;
+  // FIX: Allow message to be a ReactNode to support JSX elements in notifications
+  addNotification: (message: string | ReactNode, type: NotificationType) => void;
   notifications: Notification[];
   removeNotification: (id: string) => void;
 }
@@ -24,7 +26,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     setNotifications(prev => prev.filter(n => n.id !== id));
   }, []);
 
-  const addNotification = useCallback((message: string, type: NotificationType) => {
+  const addNotification = useCallback((message: string | ReactNode, type: NotificationType) => {
     const id = Date.now().toString() + Math.random();
     setNotifications(prev => [...prev, { id, message, type }]);
   }, []);

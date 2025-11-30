@@ -1,15 +1,19 @@
 
+
+
 import React, { useState } from 'react';
 import { Plus, X, Eraser } from 'lucide-react';
-import { Job, JobStatus } from '../types';
+import { Job, JobStatus, LogActionType } from '../types';
+import { logService } from '../services/logService'; // Import logService
 
 interface AddJobModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (j: Job) => void;
+  currentUser: string; // Add currentUser prop
 }
 
-export const AddJobModal: React.FC<AddJobModalProps> = ({ isOpen, onClose, onSave }) => {
+export const AddJobModal: React.FC<AddJobModalProps> = ({ isOpen, onClose, onSave, currentUser }) => {
   const [title, setTitle] = useState('');
   const [company, setCompany] = useState('');
   const [desc, setDesc] = useState('');
@@ -50,6 +54,7 @@ export const AddJobModal: React.FC<AddJobModalProps> = ({ isOpen, onClose, onSav
       }]
     };
     onSave(newJob);
+    logService.log(currentUser, LogActionType.JOB_ADD, `Job "${newJob.title}" for "${newJob.company}" added.`, 'info');
     // Reset
     handleClear();
     onClose();

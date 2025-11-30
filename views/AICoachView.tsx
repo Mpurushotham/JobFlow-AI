@@ -1,5 +1,6 @@
 
 
+
 import React, { useState } from 'react';
 import { Bot, FileHeart, Mic, BrainCircuit, TrendingUp } from 'lucide-react';
 import { UserProfile, SubscriptionTier } from '../types';
@@ -14,9 +15,11 @@ import SkillDevelopment from '../components/SkillDevelopment'; // New component
 interface AICoachViewProps {
   profile: UserProfile;
   subscriptionTier: SubscriptionTier | null; // New: User's subscription tier
+  // FIX: Add currentUser prop
+  currentUser: string; 
 }
 
-const AICoachView: React.FC<AICoachViewProps> = ({ profile, subscriptionTier }) => {
+const AICoachView: React.FC<AICoachViewProps> = ({ profile, subscriptionTier, currentUser }) => {
   const [activeTab, setActiveTab] = useState<'GRADER' | 'INTERVIEW' | 'SKILL_DEV' | 'CHAT'>('GRADER');
 
   const isAIPro = subscriptionTier === SubscriptionTier.AI_PRO;
@@ -57,11 +60,11 @@ const AICoachView: React.FC<AICoachViewProps> = ({ profile, subscriptionTier }) 
         </div>
         
         <div className="flex-1 bg-gray-50/50 dark:bg-slate-900/50 overflow-hidden relative">
-           {activeTab === 'CHAT' && <AIChat profile={profile} subscriptionTier={subscriptionTier} />}
-           {activeTab === 'GRADER' && <ResumeGrader profile={profile} subscriptionTier={subscriptionTier} />}
-           {activeTab === 'INTERVIEW' && <MockInterview profile={profile} subscriptionTier={subscriptionTier} />}
+           <AIChat profile={profile} subscriptionTier={subscriptionTier} />
+           {activeTab === 'GRADER' && <ResumeGrader profile={profile} subscriptionTier={subscriptionTier} currentUser={currentUser} />}
+           {activeTab === 'INTERVIEW' && <MockInterview profile={profile} subscriptionTier={subscriptionTier} currentUser={currentUser} />}
            {/* FIX: Added subscriptionTier prop to SkillDevelopment component */}
-           {activeTab === 'SKILL_DEV' && <SkillDevelopment profile={profile} subscriptionTier={subscriptionTier} />}
+           {activeTab === 'SKILL_DEV' && <SkillDevelopment profile={profile} subscriptionTier={subscriptionTier} currentUser={currentUser} />}
 
            {/* Overlay for Free users on Pro tabs */}
            {((activeTab === 'INTERVIEW' || activeTab === 'SKILL_DEV') && !isAIPro) && (

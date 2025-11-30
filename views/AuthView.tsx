@@ -1,12 +1,11 @@
-
-
 import React, { useState, useEffect } from 'react';
 import { Sparkles, KeyRound, Lock, User, LogIn, ShieldCheck, Mail, Phone, ArrowLeft, RefreshCw, CheckCircle, Smartphone, ArrowRight } from 'lucide-react';
 import { authService } from '../services/authService';
 import { useNotifications } from '../context/NotificationContext';
-import { SubscriptionTier } from '../types'; // Import SubscriptionTier
+import { SubscriptionTier, LogActionType } from '../types'; // Import SubscriptionTier and LogActionType
 import { CountryCodeInput } from '../components/CountryCodeInput'; // Import new component
 import { isValidEmail, isValidPin } from '../utils/validationUtils'; // Import new utility
+import { logService } from '../services/logService'; // Import logService
 
 interface AuthViewProps {
   initialMode: 'login' | 'signup';
@@ -16,6 +15,8 @@ interface AuthViewProps {
   authFlowState: 'welcome' | 'login' | 'signup' | 'forgot_credentials' | 'otp_verify'; // Added authFlowState
   setAuthFlowState: (state: 'welcome' | 'login' | 'signup' | 'forgot_credentials' | 'otp_verify') => void; // Added setAuthFlowState
 }
+
+const OTP_SESSION_KEY = 'jobflow_signup_otp'; // New: Key for storing OTP in sessionStorage
 
 const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack, authFlowState, setAuthFlowState }) => {
   const [username, setUsername] = useState('');
@@ -27,7 +28,7 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
   
   const [loginStep, setLoginStep] = useState(1); // 1 for pass, 2 for pin
   const [resetStep, setResetStep] = useState(1); // 1 for verify, 2 for new credentials
-  const [simulatedOtp, setSimulatedOtp] = useState(''); // Simulated OTP state
+  // REMOVED: [simulatedOtp, setSimulatedOtp] - now using sessionStorage
   const [otpInput, setOtpInput] = useState(''); // User entered OTP
   
   const [error, setError] = useState('');
@@ -36,8 +37,17 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
   const [pinInputError, setPinInputError] = useState<string | null>(null); // For PIN in signup/reset
   const { addNotification } = useNotifications();
 
-  // Removed the problematic useEffect that was preventing new signups.
-  // The username uniqueness check is handled by authService.signup internally.
+  const generateNewOtp = () => {
+    const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    sessionStorage.setItem(OTP_SESSION_KEY, generatedOtp); // Store in sessionStorage
+    logService.log('guest', LogActionType.OTP_GENERATED, `OTP generated for signup for user ${username.trim()}.`, 'info');
+    addNotification(
+      <span className="flex items-center gap-2">
+        Your OTP: <span className="text-xl font-extrabold text-indigo-600 dark:text-indigo-300 tracking-widest">{generatedOtp}</span>
+      </span>, 
+      'info'
+    );
+  };
 
   // Reset states when switching between login/signup/forgot
   useEffect(() => {
@@ -53,13 +63,14 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
     setEmail('');
     setPhone('');
     setConfirmPassword('');
-    setSimulatedOtp('');
+    // Clear OTP from session storage and input
+    sessionStorage.removeItem(OTP_SESSION_KEY); 
     setOtpInput('');
   }, [authFlowState]);
 
   const handleEmailChange = (value: string, validateNow: boolean = false) => {
-    setEmail(value);
-    if (validateNow && value && !isValidEmail(value)) {
+    setEmail(value.trim());
+    if (validateNow && value.trim() && !isValidEmail(value.trim())) {
       setEmailError('Please enter a valid email address.');
     } else {
       setEmailError(null);
@@ -67,8 +78,8 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
   };
 
   const handlePhoneChange = (fullPhoneNumber: string, isValid: boolean) => {
-    setPhone(fullPhoneNumber);
-    if (fullPhoneNumber && !isValid) {
+    setPhone(fullPhoneNumber.trim());
+    if (fullPhoneNumber.trim() && !isValid) {
       setPhoneError('Please enter a valid phone number, including country code.');
     } else {
       setPhoneError(null);
@@ -76,7 +87,7 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
   };
 
   const handlePinChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newPin = e.target.value;
+    const newPin = e.target.value.trim();
     setPin(newPin);
     if (newPin && !isValidPin(newPin)) {
       setPinInputError('PIN must be 4 digits.');
@@ -85,24 +96,32 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
     }
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
+    const trimmedUsername = username.trim();
+    const trimmedPassword = password.trim();
+    const trimmedPin = pin.trim();
+
     if (loginStep === 1) { // Check password
+      logService.log('guest', LogActionType.USER_LOGIN, `Login attempt for user: ${trimmedUsername} (password step).`, 'debug');
       setLoginStep(2);
     } else { // Check PIN and finalize login
-      if (!isValidPin(pin)) {
+      if (!isValidPin(trimmedPin)) {
         setError("MFA PIN must be 4 digits.");
+        logService.log(trimmedUsername, LogActionType.USER_LOGIN_FAILED, 'Login failed: MFA PIN is not 4 digits.', 'warn');
         return;
       }
 
-      const result = authService.login(username, password, pin);
+      // FIX: Await authService.login
+      const result = await authService.login(trimmedUsername, trimmedPassword, trimmedPin);
       if (result.success && result.username && result.subscriptionTier) {
-        addNotification(`Welcome back, ${username}!`, 'success');
+        addNotification(`Welcome back, ${trimmedUsername}!`, 'success');
         onLoginSuccess(result.username, result.isAdmin, result.subscriptionTier);
       } else {
-        setError('Invalid credentials. Please try again.');
+        // Use the message from authService.login for specific errors (e.g., inactive account)
+        setError(result.message || 'Invalid credentials. Please try again.');
         setLoginStep(1); // Reset to password step if PIN fails
         setPassword('');
         setPin('');
@@ -110,88 +129,153 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
     }
   };
 
-  const handleSignup = (e: React.FormEvent) => {
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (password !== confirmPassword) {
+
+    const trimmedUsername = username.trim();
+    const trimmedPassword = password.trim();
+    const trimmedPin = pin.trim();
+    const trimmedEmail = email.trim();
+    const trimmedPhone = phone.trim();
+    const trimmedConfirmPassword = confirmPassword.trim();
+
+
+    if (trimmedPassword !== trimmedConfirmPassword) {
+      logService.log('guest', LogActionType.USER_SIGNUP, 'Signup failed: Passwords do not match.', 'warn');
       return setError("Passwords do not match.");
     }
-    if (!isValidPin(pin)) {
+    if (!isValidPin(trimmedPin)) {
+      logService.log('guest', LogActionType.USER_SIGNUP, 'Signup failed: MFA PIN is not 4 digits.', 'warn');
       return setError("MFA PIN must be 4 digits.");
     }
     if (emailError || phoneError) {
+      logService.log('guest', LogActionType.USER_SIGNUP, 'Signup failed: Contact information validation errors.', 'warn');
       return setError("Please correct the errors in your contact information.");
+    }
+    // FIX: Added explicit non-empty validation for email and phone.
+    if (!trimmedEmail) {
+      logService.log('guest', LogActionType.USER_SIGNUP, 'Signup failed: Email Address is required.', 'warn');
+        return setError("Email Address is required for signup.");
+    }
+    if (!trimmedPhone) {
+      logService.log('guest', LogActionType.USER_SIGNUP, 'Signup failed: Phone Number is required.', 'warn');
+        return setError("Phone Number is required for signup.");
     }
     
     // Simulate OTP generation
-    const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    setSimulatedOtp(generatedOtp);
-    addNotification(`A simulated OTP has been sent to ${email} / ${phone}. OTP: ${generatedOtp}`, 'info');
+    generateNewOtp(); // Generate and display OTP, store in sessionStorage
     setAuthFlowState('otp_verify');
+    logService.log('guest', LogActionType.USER_SIGNUP, `Signup process initiated for user: ${trimmedUsername}, waiting for OTP verification.`, 'info');
   };
 
-  const handleOtpVerification = (e: React.FormEvent) => {
+  const handleOtpVerification = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     
-    // Clear OTP states after attempt
-    const currentOtpInput = otpInput;
-    setOtpInput(''); 
-    setSimulatedOtp('');
+    const expectedOtp = sessionStorage.getItem(OTP_SESSION_KEY); // Retrieve from sessionStorage
+    const trimmedOtpInput = otpInput.trim();
+    const trimmedUsername = username.trim(); // Ensure username is trimmed for signup
 
-    if (currentOtpInput === simulatedOtp) {
-        const success = authService.signup(username, password, pin, email, phone);
-        if (success) {
-            addNotification('Account created successfully!', 'success');
-            const loginResult = authService.login(username, password, pin);
-            if (loginResult.success && loginResult.username && loginResult.subscriptionTier) {
-                onLoginSuccess(loginResult.username, loginResult.isAdmin, loginResult.subscriptionTier);
-            } else {
-                setError('Login failed after signup. Please try logging in manually.');
-                setAuthFlowState('login');
-            }
+    // Log details for debugging OTP flow
+    console.log("OTP Verification Attempt:");
+    console.log("  Entered OTP:", trimmedOtpInput);
+    console.log("  Expected OTP (from session):", expectedOtp);
+    // FIX: Added more detailed logging for user details before signup.
+    console.log("  User details for signup attempt:", {
+      username: trimmedUsername,
+      password: password.trim().slice(0, 3) + '...', // Mask password for security
+      pin: pin.trim().slice(0, 1) + '...',         // Mask PIN for security
+      email: email.trim(),
+      phone: phone.trim()
+    });
+
+    // Clear OTP from session storage and input after attempt
+    sessionStorage.removeItem(OTP_SESSION_KEY); 
+    setOtpInput(''); 
+
+    // FIX: Trim both OTPs before comparison to avoid whitespace issues.
+    if (trimmedOtpInput === expectedOtp?.trim()) {
+        const signupSuccess = await authService.signup(trimmedUsername, password.trim(), pin.trim(), email.trim(), phone.trim());
+        console.log("authService.signup result:", signupSuccess); 
+        if (signupSuccess) {
+            logService.log(trimmedUsername, LogActionType.OTP_VERIFIED, 'OTP verified successfully and user signed up.', 'info');
+            addNotification(
+                <span className="flex items-center gap-2">
+                    Congratulations! <span className="text-xl font-extrabold">Welcome to JobFlow AI!</span> ✨
+                </span>, 
+                'success'
+            );
+            // Automatically log in the newly created user
+            // THIS IS THE KEY PART FOR IMMEDIATE LOGIN
+            onLoginSuccess(trimmedUsername, false, SubscriptionTier.FREE); 
         } else {
             // This means signup failed due to username already existing
             setError('A user with this username already exists. Please login or choose a different username.');
             setAuthFlowState('login'); // Redirect to login for existing username
+            logService.log(trimmedUsername, LogActionType.USER_SIGNUP, 'Signup failed: Username already exists.', 'warn');
         }
     } else {
         setError('Invalid OTP. Please try again.');
+        logService.log(trimmedUsername, LogActionType.OTP_VERIFIED, `OTP verification failed: Invalid OTP entered.`, 'warn');
     }
   };
 
-  const handleForgotCredentialsVerify = (e: React.FormEvent) => {
+  const handleForgotCredentialsVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    
+    const trimmedUsername = username.trim();
+    const trimmedEmail = email.trim();
+    const trimmedPhone = phone.trim();
+
     if (emailError || phoneError) {
+      logService.log('guest', LogActionType.USER_LOGIN_FAILED, `Forgot credentials verification failed for ${trimmedUsername}: Contact validation errors.`, 'warn');
       return setError("Please correct the errors in your contact information.");
     }
     // For client-side, we assume verification means matching existing user details
-    const users = authService.getAllUsers();
-    const userExists = users.some(u => u.username === username && u.email === email && u.phone === phone);
+    // FIX: Await authService.getAllUsers()
+    const users = await authService.getAllUsers();
+    const userExists = users.some(u => u.username === trimmedUsername && u.email === trimmedEmail && u.phone === trimmedPhone);
 
     if (userExists) {
+        logService.log(trimmedUsername, LogActionType.USER_LOGIN, `Forgot credentials verification successful for ${trimmedUsername}.`, 'info');
         addNotification('User details verified. Please set your new credentials.', 'success');
         setResetStep(2);
     } else {
+        logService.log(trimmedUsername, LogActionType.USER_LOGIN_FAILED, `Forgot credentials verification failed for ${trimmedUsername}: User not found or contact details mismatch.`, 'warn');
         setError('User not found or contact details do not match.');
     }
   };
 
-  const handleForgotCredentialsReset = (e: React.FormEvent) => {
+  const handleForgotCredentialsReset = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (password !== confirmPassword) {
+
+    const trimmedUsername = username.trim();
+    const trimmedEmail = email.trim();
+    const trimmedPhone = phone.trim();
+    const trimmedNewPassword = password.trim();
+    const trimmedNewPin = pin.trim();
+    const trimmedConfirmPassword = confirmPassword.trim();
+
+
+    if (trimmedNewPassword !== trimmedConfirmPassword) {
+      logService.log(trimmedUsername, LogActionType.USER_LOGIN_FAILED, 'Credential reset failed: New passwords do not match.', 'warn');
       return setError("New passwords do not match.");
     }
-    if (!isValidPin(pin)) {
+    if (!isValidPin(trimmedNewPin)) {
+      logService.log(trimmedUsername, LogActionType.USER_LOGIN_FAILED, 'Credential reset failed: New MFA PIN is not 4 digits.', 'warn');
       return setError("New MFA PIN must be 4 digits.");
     }
 
-    if (authService.resetCredentialsByContact(username, email, phone, password, pin)) {
+    // FIX: Await authService.resetCredentialsByContact
+    if (await authService.resetCredentialsByContact(trimmedUsername, trimmedEmail, trimmedPhone, trimmedNewPassword, trimmedNewPin)) {
+      logService.log(trimmedUsername, LogActionType.USER_LOGIN, 'User credentials successfully reset via forgot credentials flow.', 'info');
       addNotification('Your password and PIN have been reset successfully!', 'success');
       setAuthFlowState('login');
     } else {
+      logService.log(trimmedUsername, LogActionType.USER_LOGIN_FAILED, 'Credential reset failed: Could not update credentials.', 'error');
       setError('Failed to reset credentials. Please verify your details and try again.');
     }
   };
@@ -207,14 +291,14 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
             <label className="text-sm font-bold text-gray-600 dark:text-slate-400">Username</label>
             <div className="relative mt-2">
               <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input type="text" value={username} onChange={e => setUsername(e.target.value)} required className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
+              <input type="text" value={username} onChange={e => setUsername(e.target.value.trim())} required className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
             </div>
           </div>
           <div>
             <label className="text-sm font-bold text-gray-600 dark:text-slate-400">Password</label>
             <div className="relative mt-2">
               <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} required className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
+              <input type="password" value={password} onChange={e => setPassword(e.target.value.trim())} required className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
             </div>
           </div>
           <button type="submit" className="w-full py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2">
@@ -231,13 +315,13 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
             <p className="text-xs text-gray-400 dark:text-slate-500 mb-2">Enter your 4-digit security PIN.</p>
             <div className="relative">
               <ShieldCheck size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input type="password" value={pin} onChange={e => setPin(e.target.value)} maxLength={4} required autoFocus className="w-full pl-12 pr-4 py-3 tracking-[1em] bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
+              <input type="password" value={pin} onChange={handlePinChange} maxLength={4} required autoFocus className="w-full pl-12 pr-4 py-3 tracking-[1em] bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
             </div>
           </div>
            <button type="submit" className="w-full py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2">
             Login <LogIn size={18} />
           </button>
-           <button type="button" onClick={() => { setLoginStep(1); setPin('');}} className="w-full py-2 text-sm text-gray-500 hover:text-indigo-600">Back to Password</button>
+           <button type="button" onClick={() => { setLoginStep(1); setPin(''); setError('');}} className="w-full py-2 text-sm text-gray-500 hover:text-indigo-600">Back to Password</button>
         </>
       )}
        <p className="text-center text-sm">
@@ -259,7 +343,7 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
         <label className="text-sm font-bold text-gray-600 dark:text-slate-400">Username</label>
         <div className="relative mt-2">
           <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input type="text" value={username} onChange={e => setUsername(e.target.value)} required className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
+          <input type="text" value={username} onChange={e => setUsername(e.target.value.trim())} required className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
         </div>
       </div>
       <div>
@@ -292,14 +376,14 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
             <label className="text-sm font-bold text-gray-600 dark:text-slate-400">Password</label>
             <div className="relative mt-2">
             <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} required className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
+            <input type="password" value={password} onChange={e => setPassword(e.target.value.trim())} required className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
             </div>
         </div>
         <div>
             <label className="text-sm font-bold text-gray-600 dark:text-slate-400">Confirm</label>
             <div className="relative mt-2">
             <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
+            <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value.trim())} required className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
             </div>
         </div>
       </div>
@@ -341,7 +425,7 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
             <label className="text-sm font-bold text-gray-600 dark:text-slate-400">OTP</label>
             <div className="relative mt-2">
                 <Smartphone size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input type="text" value={otpInput} onChange={e => setOtpInput(e.target.value)} maxLength={6} required autoFocus className="w-full pl-12 pr-4 py-3 tracking-widest bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
+                <input type="text" value={otpInput} onChange={e => setOtpInput(e.target.value.trim())} maxLength={6} required autoFocus className="w-full pl-12 pr-4 py-3 tracking-widest bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
             </div>
         </div>
         <button type="submit" className="w-full py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2">
@@ -349,7 +433,7 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
         </button>
          <p className="text-center text-sm">
             Didn't receive OTP?{' '}
-            <button type="button" onClick={() => addNotification(`New simulated OTP: ${simulatedOtp}`, 'info')} className="font-bold text-indigo-600 hover:underline">
+            <button type="button" onClick={generateNewOtp} className="font-bold text-indigo-600 hover:underline">
               Resend OTP
             </button>
           </p>
@@ -370,7 +454,7 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
                     <label className="text-sm font-bold text-gray-600 dark:text-slate-400">Username</label>
                     <div className="relative mt-2">
                         <User size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-                        <input type="text" value={username} onChange={e => setUsername(e.target.value)} required className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
+                        <input type="text" value={username} onChange={e => setUsername(e.target.value.trim())} required className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
                     </div>
                 </div>
                 <div>
@@ -409,14 +493,14 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
                         <label className="text-sm font-bold text-gray-600 dark:text-slate-400">New Password</label>
                         <div className="relative mt-2">
                         <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-                        <input type="password" value={password} onChange={e => setPassword(e.target.value)} required className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
+                        <input type="text" value={password} onChange={e => setPassword(e.target.value.trim())} required className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
                         </div>
                     </div>
                     <div>
                         <label className="text-sm font-bold text-gray-600 dark:text-slate-400">Confirm Password</label>
                         <div className="relative mt-2">
                         <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-                        <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
+                        <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value.trim())} required className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" />
                         </div>
                     </div>
                 </div>
@@ -426,15 +510,19 @@ const AuthView: React.FC<AuthViewProps> = ({ initialMode, onLoginSuccess, onBack
                         <ShieldCheck size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
                         <input 
                           type="password" 
+                          id="new-pin"
                           value={pin} 
                           onChange={handlePinChange} 
                           onBlur={() => handlePinChange({target: {value: pin}} as React.ChangeEvent<HTMLInputElement>)} // Validate on blur
                           maxLength={4} 
                           required 
                           className="w-full pl-12 pr-4 py-3 tracking-[1em] bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none" 
+                          aria-invalid={pinInputError ? "true" : "false"}
+                          aria-describedby="pin-error"
                         />
                     </div>
-                    {pinInputError && <p className="mt-1 text-xs text-red-500">{pinInputError}</p>}
+                    {/* FIX: Changed pinError to pinInputError */}
+                    {pinInputError && <p id="pin-error" role="alert" className="mt-1 text-xs text-red-500">{pinInputError}</p>}
                 </div>
                 <button type="submit" className="w-full py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2">
                     Set New Credentials <RefreshCw size={18} />

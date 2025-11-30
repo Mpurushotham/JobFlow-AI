@@ -1,6 +1,9 @@
 
+
 import { GoogleGenAI, Type, GenerateContentResponse } from '@google/genai';
-import { InterviewQA, SearchResult, ParsedResume, SearchFilters, UserProfile, ResumeGrade, MasterResumeFitResult, LearningPath, EmailPurpose } from '../types';
+import { InterviewQA, SearchResult, ParsedResume, SearchFilters, UserProfile, ResumeGrade, MasterResumeFitResult, LearningPath, EmailPurpose, LogActionType } from '../types';
+import { logService } from './logService'; // Import new logService
+import { useAuth } from '../context/AuthContext'; // Import useAuth for currentUser
 
 // Helper to get client using the environment variables
 const getClient = () => {
@@ -9,7 +12,7 @@ const getClient = () => {
   return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
-const MODEL_FAST = 'gemini-2.5-flash';
+const MODEL_FAST = 'gemini-2.5-flash'; // Optimized for cost and speed
 
 // Helper to extract JSON from markdown code blocks
 const extractJSON = (text: string) => {
@@ -27,17 +30,29 @@ const extractJSON = (text: string) => {
   }
 };
 
-// NEW: Centralized API call handler for robust error management
-const handleApiCall = async <T>(apiCall: () => Promise<T>): Promise<T> => {
+// NEW: Centralized API call handler for robust error management and offline check
+const handleApiCall = async <T>(apiCall: () => Promise<T>, actionType: LogActionType, details: string, username: string | 'system' | 'guest'): Promise<T> => {
+  if (!navigator.onLine) {
+    logService.log(username, LogActionType.OFFLINE_EVENT, `AI call "${actionType}" failed: No internet connection.`, 'warn');
+    throw new Error('OFFLINE');
+  }
   try {
-    return await apiCall();
+    const result = await apiCall();
+    // Log successful AI calls as debug or info, depending on verbosity needed
+    logService.log(username, actionType, `AI call "${actionType}" succeeded. ${details}`, 'debug');
+    return result;
   } catch (e: any) {
     const errorMessage = e.toString().toLowerCase();
+    let logSeverity: 'warn' | 'error' = 'error';
+    let logDetails = `AI call "${actionType}" failed: ${e.message || 'Unknown error.'}`;
+
     if (errorMessage.includes('quota') || errorMessage.includes('rate limit')) {
-      // Re-throw a custom, identifiable error for rate limiting.
+      logDetails = `AI call "${actionType}" failed: Rate limit or quota exceeded.`;
+      logSeverity = 'warn'; // Rate limits are often transient, so warn might be appropriate
+      logService.log(username, LogActionType.ERROR_OCCURRED, logDetails, logSeverity);
       throw new Error('RATE_LIMIT_EXCEEDED');
     }
-    // Re-throw other errors as they are.
+    logService.log(username, LogActionType.ERROR_OCCURRED, logDetails, logSeverity);
     throw e;
   }
 };
@@ -47,13 +62,11 @@ export const geminiService = {
    * Searches for jobs using Google Search Grounding with advanced filters.
    * Includes a fallback mechanism if initial filtered search yields no results.
    */
-  searchJobs: async (filters: SearchFilters): Promise<{ text: string, results: SearchResult[], wasFallback: boolean }> => {
+  searchJobs: async (filters: SearchFilters, currentUser: string): Promise<{ text: string, results: SearchResult[], wasFallback: boolean }> => {
     return handleApiCall(async () => {
         const ai = getClient();
         const numJobsToFetch = 30; // Request more jobs initially
 
-        // FIX: Moved dateMap definition outside the conditional block to correctly infer its type
-        // and used explicit type from SearchFilters to include all possible values.
         const dateMap: Record<SearchFilters['datePosted'], string> = { 
           '24h': 'past 24 hours', 
           'week': 'past week', 
@@ -63,9 +76,11 @@ export const geminiService = {
 
         // --- Primary Search: Uses all specified filters ---
         let primaryPrompt = `
-          You are a job search assistant. Find ${numJobsToFetch} recent, active job postings for: "${filters.query}".
+          You are a highly efficient job search engine assistant, specializing in finding active, recent job postings.
+          Your task is to find ${numJobsToFetch} job postings based on the provided criteria.
           
-          Apply the following filters strictly to find relevant job posts from various sources:
+          Strictly adhere to ALL the following criteria:
+          - Keywords: "${filters.query}"
         `;
 
         if (filters.location) primaryPrompt += `- Location: "${filters.location}"\n`;
@@ -77,28 +92,29 @@ export const geminiService = {
         if (filters.experienceLevel !== 'any') primaryPrompt += `- Experience Level: "${filters.experienceLevel}"\n`;
         if (filters.jobType !== 'any') primaryPrompt += `- Job Type: "${filters.jobType}"\n`;
         if (filters.remote !== 'any') primaryPrompt += `- Work Arrangement: "${filters.remote}"\n`;
-        if (filters.salaryRange !== 'any') primaryPrompt += `- Salary Range: "${filters.salaryRange.replace(/_/g, ' ')}"\n`; // Added salaryRange
-        if (filters.seniority !== 'any') primaryPrompt += `- Seniority: "${filters.seniority.replace(/_/g, ' ')}"\n`; // Added seniority
+        if (filters.salaryRange !== 'any') primaryPrompt += `- Salary Range: "${filters.salaryRange.replace(/_/g, ' ')}"\n`;
+        if (filters.seniority !== 'any') primaryPrompt += `- Seniority: "${filters.seniority.replace(/_/g, ' ')}"\n`;
         
         primaryPrompt += `
-          Use the Google Search tool to find actual open roles that match ALL these criteria. 
+          Use the Google Search tool to find actual, currently open job postings that precisely match ALL these criteria. 
           
-          CRITICAL: For each job, provide a direct URL to the *actual job posting* on a reputable job site. If a direct, valid link cannot be found, use "N/A" for the URL. Do not provide generic search result links or company career page links unless they are the direct posting. Prioritize direct and current links.
+          CRITICAL: For each job, provide a direct, valid URL to the *original job posting* on a reputable job site (e.g., LinkedIn, Indeed, company career page). If a direct link is absolutely not found after a thorough search, use "N/A" for the URL. Do not provide generic search result links or links to job aggregators that don't host the original ad.
 
-          AFTER searching, output the results in a strict JSON array format inside a markdown code block.
-          The JSON object for each job must have these keys:
-          - title (string)
-          - company (string)
-          - location (string)
-          - url (string - MUST be a direct URL to the job posting from any reputable job site, or N/A if not found. Prioritize direct links.)
-          - summary (string - max 2 sentences)
+          AFTER searching, format the results as a strict JSON array inside a markdown code block.
+          Each JSON object for a job MUST have these exact keys and types:
+          - title (string): The exact job title.
+          - company (string): The company name.
+          - location (string): City, State, or Country (e.g., "London, UK", "Remote").
+          - url (string): Direct URL to the job posting, or "N/A".
+          - summary (string): A concise 1-2 sentence description of the role, extracted directly from the posting.
 
           Example output format:
           \`\`\`json
           [
-            { "title": "Software Engineer", "company": "Tech Corp", "location": "Remote", "url": "https://examplejobs.com/job/...", "summary": "..." }
+            { "title": "Software Engineer", "company": "Tech Corp", "location": "Remote", "url": "https://examplejobs.com/job/...", "summary": "Develops and maintains software applications for cloud platforms." }
           ]
           \`\`\`
+          Ensure the JSON is perfectly valid and only includes the specified keys. DO NOT include any conversational text outside the markdown block.
         `;
 
         let primaryResponse: GenerateContentResponse = await ai.models.generateContent({
@@ -115,27 +131,29 @@ export const geminiService = {
         if (primaryResults.length === 0) {
             // --- Fallback Search: If primary search yields no results, perform a broader search ---
             const fallbackPrompt = `
-              You are a job search assistant. Find ${numJobsToFetch} recent, active job postings for: "${filters.query}" from various sources.
-              Focus only on the primary keyword and ignore other specific filters (like location, date posted, experience level, job type, remote, industry, salary range, and seniority) for this broad search.
+              You are a highly efficient job search engine assistant, specializing in finding active, recent job postings.
+              No jobs were found with the specific filters. Now, find ${numJobsToFetch} recent, active job postings for: "${filters.query}" from various reputable sources.
+              For this broader search, focus primarily on the keywords and ignore other specific filters (like location, date posted, experience level, job type, remote, industry, salary range, and seniority).
               
-              Use the Google Search tool to find actual open roles. 
+              Use the Google Search tool to find actual, currently open job postings.
               
-              CRITICAL: For each job, provide a direct URL to the *actual job posting* on a reputable job site. If a direct, valid link cannot be found, use "N/A" for the URL. Do not provide generic search result links or company career page links unless they are the direct posting. Prioritize direct and current links.
+              CRITICAL: For each job, provide a direct, valid URL to the *original job posting* on a reputable job site (e.g., LinkedIn, Indeed, company career page). If a direct link is absolutely not found after a thorough search, use "N/A" for the URL. Do not provide generic search result links or links to job aggregators that don't host the original ad.
 
-              AFTER searching, output the results in a strict JSON array format inside a markdown code block.
-              The JSON object for each job must have these keys:
-              - title (string)
-              - company (string)
-              - location (string)
-              - url (string - MUST be a direct URL to the job posting from any reputable job site, or N/A if not found. Prioritize direct links.)
-              - summary (string - max 2 sentences)
+              AFTER searching, format the results as a strict JSON array inside a markdown code block.
+              Each JSON object for a job MUST have these exact keys and types:
+              - title (string): The exact job title.
+              - company (string): The company name.
+              - location (string): City, State, or Country (e.g., "London, UK", "Remote").
+              - url (string): Direct URL to the job posting, or "N/A".
+              - summary (string): A concise 1-2 sentence description of the role, extracted directly from the posting.
               
               Example output format:
               \`\`\`json
               [
-                { "title": "Software Engineer", "company": "Tech Corp", "location": "Remote", "url": "https://examplejobs.com/job/...", "summary": "..." }
+                { "title": "Software Engineer", "company": "Tech Corp", "location": "Remote", "url": "https://examplejobs.com/job/...", "summary": "Develops and maintains software applications for cloud platforms." }
               ]
               \`\`\`
+              Ensure the JSON is perfectly valid and only includes the specified keys. DO NOT include any conversational text outside the markdown block.
             `;
 
             let fallbackResponse: GenerateContentResponse = await ai.models.generateContent({
@@ -144,43 +162,53 @@ export const geminiService = {
               config: { tools: [{googleSearch: {}}] }
             });
 
-            let fallbackParsedData = extractJSON(fallbackResponse.text || '');
-            let fallbackResults: SearchResult[] = Array.isArray(fallbackParsedData) ? fallbackParsedData : [];
-
+            let fallbackResults: SearchResult[] = Array.isArray(extractJSON(fallbackResponse.text || '')) ? extractJSON(fallbackResponse.text || '') : [];
+            logService.log(currentUser, LogActionType.JOB_SEARCH, `Fallback search for "${filters.query}" yielded ${fallbackResults.length} results.`, 'info');
             return { text: fallbackResponse.text || '', results: fallbackResults, wasFallback: true };
         } else {
+            logService.log(currentUser, LogActionType.JOB_SEARCH, `Primary search for "${filters.query}" yielded ${primaryResults.length} results.`, 'info');
             return { text: primaryResponse.text || '', results: primaryResults, wasFallback: false };
         }
-    });
+    }, LogActionType.JOB_SEARCH, `Searching for jobs with query "${filters.query}"`, currentUser);
   },
 
   /**
    * Analyzes the job description against the resume to provide a match score and insights.
    */
-  analyzeJob: async (resume: string, jobTitle: string, jobSummary: string) => { // Modified to take jobTitle and jobSummary
+  analyzeJob: async (resume: string, jobTitle: string, jobSummary: string, currentUser: string) => { // Modified to take jobTitle and jobSummary
     return handleApiCall(async () => {
         const ai = getClient();
         
         const prompt = `
-          You are an expert career coach.
-          Resume: "${resume.slice(0, 10000)}"
-          Job Title: "${jobTitle}"
-          Job Summary: "${jobSummary.slice(0, 10000)}"
+          You are an expert career coach and Applicant Tracking System (ATS) specialist.
+          Your task is to analyze the compatibility between a candidate's resume and a specific job posting.
+
+          Candidate's Master Resume (summarized for context):
+          ---
+          ${resume.slice(0, 8000)}
+          ---
+
+          Target Job Details:
+          - Title: "${jobTitle}"
+          - Summary: "${jobSummary.slice(0, 5000)}"
           
-          Analyze the fit between the resume and this job title/summary. Return a JSON object with:
-          1. score: number (0-100)
-          2. summary: string (2 sentences max)
-          3. missingSkills: string[] (key missing skills, max 5)
-          4. matchingSkills: string[] (key matching skills, max 5)
+          Based on the provided resume content and job details, perform a comprehensive fit analysis.
+          Return a JSON object with the following strict structure:
+          1.  score: number (0-100, representing overall compatibility, higher is better).
+          2.  summary: string (2-3 sentences max, explaining the overall fit, highlighting top 2-3 strengths and main 1-2 gaps in relation to the job).
+          3.  missingSkills: string[] (list up to 5 critical skills explicitly mentioned or strongly implied in the job summary that are *not* clearly present or demonstrated in the resume).
+          4.  matchingSkills: string[] (list up to 5 key skills from the job summary that *are* clearly present and demonstrated in the resume).
+
+          Ensure the JSON is perfectly valid and directly parsable. DO NOT include any conversational text outside the JSON.
         `;
 
         const schema = {
           type: Type.OBJECT,
           properties: {
-            score: { type: Type.NUMBER },
-            summary: { type: Type.STRING },
-            missingSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
-            matchingSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
+            score: { type: Type.NUMBER, description: 'Overall compatibility score (0-100).' },
+            summary: { type: Type.STRING, description: '2-3 sentence summary of the overall fit.' },
+            missingSkills: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'List of up to 5 critical missing skills.' },
+            matchingSkills: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'List of up to 5 key matching skills.' },
           },
           required: ['score', 'summary', 'missingSkills', 'matchingSkills']
         };
@@ -195,35 +223,39 @@ export const geminiService = {
         });
 
         return JSON.parse(response.text || '{}');
-    });
+    }, LogActionType.JOB_ANALYSIS, `Job analysis for "${jobTitle}"`, currentUser);
   },
 
   /**
    * Analyzes the master resume against a target job description to provide a match score and insights.
    */
-  analyzeMasterResumeFit: async (resumeContent: string, targetJobDescription: string): Promise<MasterResumeFitResult> => {
+  analyzeMasterResumeFit: async (resumeContent: string, targetJobDescription: string, currentUser: string): Promise<MasterResumeFitResult> => {
     return handleApiCall(async () => {
       const ai = getClient();
 
       const prompt = `
         You are an expert career coach.
-        Master Resume: "${resumeContent.slice(0, 10000)}"
-        Target Job Description: "${targetJobDescription.slice(0, 10000)}"
+        Analyze the overarching fit between this master resume and the *general requirements* of the target job description. This analysis is for identifying broad skill alignment and gaps for an ideal role, not for a specific application.
+        
+        Master Resume (for context): "${resumeContent.slice(0, 8000)}"
+        Target Job Description (for ideal role - general requirements): "${targetJobDescription.slice(0, 5000)}"
 
-        Analyze the fit between the master resume and this target job description. Return a JSON object with:
-        1. score: number (0-100)
-        2. summary: string (2 sentences max)
-        3. missingSkills: string[] (key missing skills, max 5)
-        4. matchingSkills: string[] (key matching skills, max 5)
+        Return a JSON object with the following strict structure:
+        1. score: number (0-100, overall match for the ideal role)
+        2. summary: string (2-3 sentences max, summarizing the general fit, strengths, and primary skill areas to develop for the target role).
+        3. missingSkills: string[] (list up to 5 key skills/competencies from the target job description that are most notably absent or weak in the master resume).
+        4. matchingSkills: string[] (list up to 5 key skills/competencies from the target job description that are strongly demonstrated in the master resume).
+
+        Ensure the JSON is perfectly valid and directly parsable. DO NOT include any conversational text outside the JSON.
       `;
 
       const schema = {
         type: Type.OBJECT,
         properties: {
-          score: { type: Type.NUMBER },
-          summary: { type: Type.STRING },
-          missingSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
-          matchingSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
+          score: { type: Type.NUMBER, description: 'Overall match score for the ideal role (0-100).' },
+          summary: { type: Type.STRING, description: '2-3 sentence summary of the general fit.' },
+          missingSkills: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'List of up to 5 key missing skills for the target role.' },
+          matchingSkills: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'List of up to 5 key matching skills for the target role.' },
         },
         required: ['score', 'summary', 'missingSkills', 'matchingSkills']
       };
@@ -238,50 +270,80 @@ export const geminiService = {
       });
 
       return JSON.parse(response.text || '{}');
-    });
+    }, LogActionType.JOB_ANALYSIS, `Master resume fit analysis for target roles`, currentUser);
   },
 
   /**
    * Generates a skill development path for a list of missing skills.
    */
-  generateSkillDevelopmentPath: async (missingSkills: string[]): Promise<LearningPath> => {
+  generateSkillDevelopmentPath: async (missingSkills: string[], currentUser: string): Promise<LearningPath> => {
     return handleApiCall(async () => {
       const ai = getClient();
 
       const prompt = `
-        You are an expert career development coach. For the following skills: [${missingSkills.join(', ')}],
-        generate a comprehensive learning path. For each skill, suggest 2-3 practical ways to acquire or improve it, focusing on actionable resources like online courses, personal projects, key concepts, or relevant tools.
+        You are an expert career development coach specializing in actionable learning paths.
+        For the following skills identified as missing or needing improvement: [${missingSkills.join(', ')}],
+        generate a comprehensive and practical learning path.
+        
+        For each skill, suggest 2-3 concrete and actionable resources or steps to acquire or improve it. Focus on resources that are highly effective and widely accessible. Provide specific examples where possible (e.g., Coursera courses, specific types of projects, essential tools).
 
-        Return a JSON object with the following structure:
-        - summary: string (a brief intro to the learning path, 2 sentences max)
-        - skillTopics: array of objects, each with:
-          - skill: string (the name of the skill)
-          - resources: array of objects, each with:
-            - type: "Course" | "Project" | "Concept" | "Tool"
-            - title: string (name of the resource/project/concept)
-            - description: string (brief explanation)
-            - link?: string (optional URL for courses/tools, GitHub for projects etc.)
+        Return a JSON object with the following strict structure:
+        - summary: string (A concise introduction to the learning path, 2 sentences max. Focus on empowerment and strategy.)
+        - skillTopics: array of objects, each representing a skill, with:
+          - skill: string (The exact name of the skill from the input list).
+          - resources: array of objects, each describing a learning resource, with:
+            - type: "Course" | "Project" | "Concept" | "Tool" (Categorize the resource clearly).
+            - title: string (A descriptive name for the resource/project/concept/tool, e.g., "Coursera: Advanced Python", "Build a REST API with Node.js", "Understanding Data Structures").
+            - description: string (A brief, 1-2 sentence explanation of what the resource offers or why it's useful for learning the skill).
+            - link?: string (Optional: a direct, valid URL to the course, project repository, documentation, or relevant article. Only include if a specific, high-quality, and publicly accessible link is available. If no specific link, omit the property. Do NOT generate placeholder links).
+        
+        Example JSON format:
+        \`\`\`json
+        {
+          "summary": "This path will guide you through acquiring critical skills. Focus on practical application to accelerate your growth.",
+          "skillTopics": [
+            {
+              "skill": "Python",
+              "resources": [
+                {
+                  "type": "Course",
+                  "title": "Python for Everybody Specialization (Coursera)",
+                  "description": "Comprehensive Coursera specialization covering Python basics to advanced data structures and web programming. Ideal for beginners to intermediate learners.",
+                  "link": "https://www.coursera.org/specializations/python"
+                },
+                {
+                  "type": "Project",
+                  "title": "Build a Web Scraper with Python",
+                  "description": "Hands-on project to learn Python libraries like BeautifulSoup and Requests for data extraction from websites. Practical application of Python fundamentals.",
+                  "link": "https://www.example.com/build-python-scraper-project"
+                }
+              ]
+            }
+          ]
+        }
+        \`\`\`
+        Ensure the JSON is perfectly valid and directly parsable. DO NOT include any conversational text outside the JSON.
       `;
 
       const schema = {
         type: Type.OBJECT,
         properties: {
-          summary: { type: Type.STRING },
+          summary: { type: Type.STRING, description: 'A concise introduction to the learning path.' },
           skillTopics: {
             type: Type.ARRAY,
             items: {
               type: Type.OBJECT,
               properties: {
-                skill: { type: Type.STRING },
+                skill: { type: Type.STRING, description: 'The name of the skill.' },
                 resources: {
                   type: Type.ARRAY,
                   items: {
                     type: Type.OBJECT,
                     properties: {
-                      type: { type: Type.STRING, enum: ['Course', 'Project', 'Concept', 'Tool'] },
-                      title: { type: Type.STRING },
-                      description: { type: Type.STRING },
-                      link: { type: Type.STRING },
+                      type: { type: Type.STRING, enum: ['Course', 'Project', 'Concept', 'Tool'], description: 'Category of the learning resource.' },
+                      title: { type: Type.STRING, description: 'Descriptive title for the resource.' },
+                      description: { type: Type.STRING, description: 'Brief explanation of the resource.' },
+                      link: { type: Type.STRING, description: 'Optional: URL to the resource.' },
                     },
                     required: ['type', 'title', 'description'],
                   },
@@ -303,72 +365,73 @@ export const geminiService = {
         }
       });
       return JSON.parse(response.text || '{}');
-    });
+    }, LogActionType.SKILL_DEV_PATH_GENERATE, `Skill development path for skills: ${missingSkills.join(', ')}`, currentUser);
   },
 
   /**
    * Rewrites the user's resume for a specific job.
    */
-  tailorResume: async (resume: string, jobDescription: string, profile: UserProfile) => {
+  tailorResume: async (resume: string, jobDescription: string, profile: UserProfile, currentUser: string) => {
     return handleApiCall(async () => {
         const ai = getClient();
         
         const prompt = `
           Act as an expert resume writer and career coach, specializing in creating ATS-optimized documents.
+          Your task is to rewrite the provided "Original Resume" to perfectly match the "Target Job Description".
 
           Original Resume:
           ---
-          ${resume}
+          ${resume.slice(0, 8000)}
           ---
 
           Target Job Description:
           ---
-          ${jobDescription}
+          ${jobDescription.slice(0, 8000)}
           ---
 
-          User Profile (for Contact Info - ONLY include if value is provided):
+          User Profile (for Contact Info - ONLY include if value is provided and valid, otherwise omit the field completely):
           Name: ${profile.name || '[Candidate Name]'}
           Email: ${profile.email ? profile.email : ''}
           Phone: ${profile.phone ? profile.phone : ''}
           LinkedIn: ${profile.linkedin ? profile.linkedin : ''}
           GitHub: ${profile.github ? profile.github : ''}
           Website: ${profile.website ? profile.website : ''}
+          Portfolio: ${profile.portfolio ? profile.portfolio : ''}
 
           **CRITICAL ATS-OPTIMIZATION RULES:**
 
           1.  **KEYWORD INTEGRATION**:
-              -   Analyze the 'Target Job Description' for key skills, technologies, and qualifications.
-              -   Naturally and logically incorporate these keywords throughout the rewritten resume, especially in the 'SUMMARY', 'SKILLS', and 'WORK EXPERIENCE' sections.
-              -   Mirror the language of the job description where appropriate (e.g., if they say "team collaboration," use that phrase).
+              -   Thoroughly analyze the 'Target Job Description' for specific keywords, phrases, required skills, technologies, and qualifications.
+              -   Naturally and logically integrate these exact keywords and concepts throughout the rewritten resume. Prioritize sections like 'SUMMARY', 'SKILLS', and 'WORK EXPERIENCE'.
+              -   Mirror the language of the job description where appropriate (e.g., if they say "team collaboration," use that specific phrase). Ensure a high density of relevant keywords without keyword stuffing.
 
           2.  **STRUCTURE & FORMATTING**:
-              -   Use a clean, single-column layout. **Do NOT use tables, multi-column formats, or embedded images/icons.**
-              -   **HEADER**: The resume must start with a clear, concise header.
+              -   Use a clean, professional, single-column layout. **Absolutely DO NOT use tables, multi-column formats, text boxes, or embedded images/icons.** This is crucial for ATS parsing.
+              -   **HEADER**: The resume must start with a clear, concise header for contact information.
                   -   The very first line must be the candidate's full name as a Markdown H1 (e.g., # JANE DOE).
-                  -   Immediately following, on a single line, include contact information separated by pipes. Only include the fields for which data is available from the 'User Profile'.
-                      Example: Email | Phone | LinkedIn URL | GitHub URL | Portfolio Website
-              -   **STANDARD SECTION HEADERS**: Use these exact Markdown H2 headers for primary sections. Omit sections if no relevant content can be extracted from the original resume or profile.
+                  -   Immediately following, on a single line, include all *provided* and *valid* contact information separated by pipes (e.g., "Email | Phone | LinkedIn URL | GitHub URL | Portfolio Website"). Omit any field if data is not provided.
+              -   **STANDARD SECTION HEADERS**: Use these exact Markdown H2 headers for primary sections. Omit any section if no relevant content can be extracted from the original resume or profile for that section.
                   ## SUMMARY
                   ## SKILLS
                   ## WORK EXPERIENCE
-                  ## PROJECTS
+                  ## PROJECTS (if applicable)
                   ## EDUCATION
-                  ## CERTIFICATIONS
-                  ## AWARDS
-              -   **SKILLS SECTION**: Group skills by relevant categories (e.g., **Programming Languages:** Java, Python; **Databases:** SQL, MongoDB; **Tools:** Jira, Figma).
-              -   **WORK EXPERIENCE FORMAT**: For each position, follow this precise format:
+                  ## CERTIFICATIONS (if applicable)
+                  ## AWARDS (if applicable)
+              -   **SKILLS SECTION**: Group skills logically by relevant categories (e.g., **Programming Languages:** Python, Java; **Cloud Platforms:** AWS, Azure; **Tools:** Jira, Docker; **Methodologies:** Agile, Scrum). Use bolding for categories.
+              -   **WORK EXPERIENCE FORMAT**: For each position, follow this precise Markdown format:
                   **Company Name** | City, State
-                  *Job Title* | Month Year – Month Year
-                  -   Use bullet points (hyphens) starting with strong action verbs (e.g., Engineered, Managed, Led, Developed).
-                  -   Quantify achievements with metrics wherever possible (e.g., "Increased user engagement by 15%," "Reduced server costs by 25%").
-                  -   Tailor the bullet points to reflect the responsibilities and impact listed in the job description.
+                  *Job Title* | Month Year – Month Year (or Present)
+                  -   Use strong, quantifiable bullet points (hyphens) starting with powerful action verbs (e.g., "Engineered", "Managed", "Led", "Developed", "Implemented").
+                  -   Quantify achievements with metrics (numbers, percentages, monetary values) wherever possible to demonstrate impact (e.g., "Increased user engagement by 15%", "Reduced server costs by 25%", "Managed a team of 5").
+                  -   Tailor each bullet point to explicitly address responsibilities and impacts listed in the 'Target Job Description'.
 
           3.  **FINAL INSTRUCTIONS**:
-              -   The entire output must be in Markdown.
-              -   Do NOT include any conversational text, introductions, or explanations like "Here is the tailored resume."
+              -   The entire output must be in valid Markdown format.
+              -   Do NOT include any conversational text, introductory phrases, or explanations (e.g., "Here is the tailored resume.").
               -   Do NOT wrap the final output in Markdown code fences (\`\`\`).
               -   Start the response DIRECTLY with the H1 name.
-              -   Keep the resume concise, ideally 1-2 pages for most roles.
+              -   Keep the resume concise and impactful, ideally 1-2 pages for most professional roles. Prioritize relevance over exhaustive detail.
         `;
 
         const response = await ai.models.generateContent({
@@ -379,38 +442,49 @@ export const geminiService = {
         let text = response.text || "Failed to generate resume.";
         text = text.replace(/^```markdown\n/, '').replace(/^```\n/, '').replace(/\n```$/, '');
         return text;
-    });
+    }, LogActionType.RESUME_TAILOR, `Resume tailoring for job: "${jobDescription.split('\n')[0]}"`, currentUser);
   },
 
   /**
    * Generates a cover letter.
    */
-  generateCoverLetter: async (resume: string, jobDescription: string, company: string, userPhone?: string, userEmail?: string) => {
+  generateCoverLetter: async (resume: string, jobDescription: string, company: string, userPhone?: string, userEmail?: string, currentUser?: string) => {
     return handleApiCall(async () => {
         const ai = getClient();
         const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
         
+        // Extract applicant name from the beginning of the resume content (assuming H1 format)
+        const applicantNameMatch = resume.match(/^#\s*(.+?)\n/);
+        const applicantName = applicantNameMatch ? applicantNameMatch[1].trim() : 'Valued Applicant';
+
         const prompt = `
-          Write a compelling, professional cover letter for the company "${company}".
-          
-          Resume Context:
-          ${resume}
+          You are an expert career communications specialist.
+          Write a compelling, professional, and personalized cover letter for the company "${company}", applying for the role implied by the "Job Description".
 
-          Job Description:
-          ${jobDescription}
-          
-          User Contact Info:
-          Phone: ${userPhone || '[Phone Number]'}
-          Email: ${userEmail || '[Email Address]'}
-
+          Applicant Name: ${applicantName}
+          Applicant Phone: ${userPhone || '[Your Phone Number]'}
+          Applicant Email: ${userEmail || '[Your Email Address]'}
           Current Date: ${today}
 
-          CRITICAL RULES:
-          1. HEADER: Start with the Applicant's Name (extracted from resume) and Contact Info (Phone, Email) at the top, followed by the Date: "${today}".
-          2. Follow standard business letter format (Hiring Manager, Company Address).
-          3. Do NOT include conversational filler like "Here is the letter".
-          4. Do NOT wrap in code blocks.
-          5. Keep it concise (under 400 words), enthusiastic, and professional.
+          Relevant Resume Context (for skills & experience):
+          ${resume.slice(0, 5000)}
+
+          Target Job Description:
+          ${jobDescription.slice(0, 5000)}
+          
+          **CRITICAL RULES:**
+          1.  **HEADER**: Begin with the Applicant's Name, followed by their Phone, and Email, each on a new line. Then include the Current Date.
+              Example:
+              John Doe
+              (123) 456-7890
+              john.doe@example.com
+
+              ${today}
+          2.  **FORMAT**: Follow standard business letter format (address to "Hiring Manager" or "Hiring Team" if no specific name is known, use the Company Name).
+          3.  **PERSONALIZATION**: Explicitly reference 2-3 key requirements from the job description and clearly link them to specific accomplishments or skills from the resume. Quantify impact where possible.
+          4.  **TONE**: Maintain a confident, enthusiastic, and professional tone throughout.
+          5.  **CONCISENESS**: Keep the letter concise, ideally under 400 words (1 page).
+          6.  **OUTPUT**: Do NOT include any conversational filler (e.g., "Here is the letter"). Do NOT wrap the output in Markdown code blocks. Start directly with the Applicant's Name.
         `;
 
         const response = await ai.models.generateContent({
@@ -421,22 +495,37 @@ export const geminiService = {
         let text = response.text || "Failed to generate cover letter.";
         text = text.replace(/^```markdown\n/, '').replace(/^```\n/, '').replace(/\n```$/, '');
         return text;
-    });
+    }, LogActionType.COVER_LETTER_GENERATE, `Cover letter generation for company: "${company}"`, currentUser || 'guest');
   },
 
   /**
    * Generates interview questions and answers.
    */
-  generateInterviewPrep: async (resume: string, jobDescription: string): Promise<InterviewQA[]> => {
+  generateInterviewPrep: async (resume: string, jobDescription: string, currentUser: string): Promise<InterviewQA[]> => {
     return handleApiCall(async () => {
         const ai = getClient();
         
         const prompt = `
-          Generate 5 behavioral and technical interview questions tailored to this specific job and resume.
-          For each question, provide a suggested answer (STAR method) and a "tip".
+          You are an expert interview coach.
+          Generate 5 diverse interview questions specifically tailored to this job description and the provided candidate resume.
+          Include a mix of behavioral (requiring STAR method answers) and technical/situational questions.
+
+          For each question, provide:
+          1.  A suggested ideal answer (brief, following the STAR method for behavioral questions where appropriate).
+          2.  A concise "tip" (1-2 sentences) for how the candidate should approach answering, or what the interviewer is looking for.
           
-          Resume: ${resume.slice(0, 5000)}
-          Job: ${jobDescription.slice(0, 5000)}
+          Candidate's Master Resume (for context):
+          ${resume.slice(0, 5000)}
+          
+          Target Job Description:
+          ${jobDescription.slice(0, 5000)}
+
+          Return a JSON array of objects, where each object has the following strict structure:
+          - question: string (The interview question).
+          - answer: string (A suggested example answer. For behavioral, use STAR method format. For technical, provide a direct, concise response).
+          - tip: string (Coaching advice for the candidate, 1-2 sentences).
+
+          Ensure the JSON is perfectly valid and directly parsable. DO NOT include any conversational text outside the JSON.
         `;
 
         const schema = {
@@ -444,9 +533,9 @@ export const geminiService = {
           items: {
             type: Type.OBJECT,
             properties: {
-              question: { type: Type.STRING },
-              answer: { type: Type.STRING },
-              tip: { type: Type.STRING }
+              question: { type: Type.STRING, description: 'The interview question.' },
+              answer: { type: Type.STRING, description: 'A suggested example answer.' },
+              tip: { type: Type.STRING, description: 'Coaching advice for the candidate.' }
             },
             required: ['question', 'answer', 'tip']
           }
@@ -462,40 +551,45 @@ export const geminiService = {
         });
 
         return JSON.parse(response.text || '[]');
-    });
+    }, LogActionType.INTERVIEW_PREP_GENERATE, `Interview prep generation for job: "${jobDescription.split('\n')[0]}"`, currentUser);
   },
 
   /**
    * Parses raw resume text into structured data.
    */
-  parseResume: async (resumeText: string): Promise<ParsedResume> => {
+  parseResume: async (resumeText: string, currentUser: string): Promise<ParsedResume> => {
     return handleApiCall(async () => {
         const ai = getClient();
         
         const prompt = `
-          Extract structured data from this resume text:
-          "${resumeText.slice(0, 15000)}"
+          You are an expert resume data extractor.
+          Extract structured data from the following raw resume text. Prioritize clear and accurate extraction.
+          
+          Resume Text:
+          "${resumeText.slice(0, 10000)}"
 
-          Return JSON with:
-          - fullName
-          - email
-          - phone
-          - skills (array of strings)
-          - experienceSummary (short summary of experience)
-          - educationSummary (short summary of education)
+          Return a JSON object with the following exact keys. If a field is not found or is empty, omit the key from the JSON object.
+          - fullName: string (The candidate's full name).
+          - email: string (The candidate's email address).
+          - phone: string (The candidate's primary phone number, including country code if present, in E.164 format if possible e.g., +15551234567).
+          - skills: string[] (An array of key technical and soft skills, e.g., ["Python", "React", "Project Management", "Agile"]).
+          - experienceSummary: string (A brief, 1-2 sentence summary of the candidate's professional experience, highlighting key industries, years of experience, or most impactful achievements).
+          - educationSummary: string (A brief, 1-2 sentence summary of the candidate's highest education, e.g., "Master's in Computer Science from XYZ University, 2020").
+          
+          Ensure the JSON is perfectly valid and directly parsable. DO NOT include any conversational text outside the JSON.
         `;
 
         const schema = {
           type: Type.OBJECT,
           properties: {
-            fullName: { type: Type.STRING },
-            email: { type: Type.STRING },
-            phone: { type: Type.STRING },
-            skills: { type: Type.ARRAY, items: { type: Type.STRING } },
-            experienceSummary: { type: Type.STRING },
-            educationSummary: { type: Type.STRING },
+            fullName: { type: Type.STRING, description: 'The candidate\'s full name.' },
+            email: { type: Type.STRING, description: 'The candidate\'s email address.' },
+            phone: { type: Type.STRING, description: 'The candidate\'s primary phone number.' },
+            skills: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'An array of key technical and soft skills.' },
+            experienceSummary: { type: Type.STRING, description: 'A brief summary of the candidate\'s professional experience.' },
+            educationSummary: { type: Type.STRING, description: 'A brief summary of the candidate\'s highest education.' },
           },
-          required: ['fullName', 'skills']
+          required: [] // No required fields, as some might be missing in raw text
         };
 
         const response = await ai.models.generateContent({
@@ -508,18 +602,16 @@ export const geminiService = {
         });
 
         return JSON.parse(response.text || '{}');
-    });
+    }, LogActionType.RESUME_PARSE, `Resume parsing for profile`, currentUser);
   },
   
   /**
    * Gets the current weather for a location using coordinates.
    */
-  // FIX: Updated return type to include `country`
-  getWeatherByCoords: async (latitude: number, longitude: number): Promise<{ city: string; country: string; description: string; temperature: number } | null> => {
+  getWeatherByCoords: async (latitude: number, longitude: number, currentUser: string): Promise<{ city: string; country: string; description: string; temperature: number } | null> => {
     return handleApiCall(async () => {
         const ai = getClient();
-        // FIX: Updated prompt to explicitly ask for `country`
-        const prompt = `What is the current city name, country, weather description, and temperature in Celsius for latitude ${latitude} and longitude ${longitude}? Use Google Search for real-time data. Return a JSON object inside a markdown code block with keys "city" (string), "country" (string), "description" (e.g., "Sunny", "Partly Cloudy", "Rain"), and "temperature" (a number).`;
+        const prompt = `What is the current city name, country, weather description, and temperature in Celsius for latitude ${latitude} and longitude ${longitude}? Use Google Search for real-time, accurate data. Return a strict JSON object inside a markdown code block with keys "city" (string), "country" (string), "description" (e.g., "Sunny", "Partly Cloudy", "Rain"), and "temperature" (a number, rounded to nearest whole number). DO NOT include any conversational text outside the markdown block.`;
         
         const response = await ai.models.generateContent({
           model: MODEL_FAST,
@@ -529,38 +621,71 @@ export const geminiService = {
           },
         });
 
-        return extractJSON(response.text || 'null');
-    });
+        // FIX: Added explicit return type to the Promise.
+        return extractJSON(response.text || 'null') as { city: string; country: string; description: string; temperature: number } | null;
+    }, LogActionType.GEOLOCATION_FETCH, `Weather fetch for coords ${latitude}, ${longitude}`, currentUser);
   },
 
   /**
    * Grades a resume based on several metrics.
    */
-  gradeResume: async (resumeText: string): Promise<ResumeGrade> => {
+  gradeResume: async (resumeText: string, currentUser: string): Promise<ResumeGrade> => {
     return handleApiCall(async () => {
         const ai = getClient();
         const prompt = `
-          As an expert career coach and ATS specialist, analyze and grade this resume on a scale of 0-100.
-          Resume: "${resumeText.slice(0, 15000)}"
+          As an expert career coach and Applicant Tracking System (ATS) specialist, analyze and grade the following resume on a scale of 0-100.
           
-          Provide a comprehensive analysis in a strict JSON format. Evaluate the following four key areas, providing a 'pass' (boolean) and 'feedback' (string, 1-2 sentences) for each:
-          1. atsFriendly: Is the format clean, single-column, and easily parsable by an Applicant Tracking System? Penalize for tables, multi-column layouts, and excessive graphics.
-          2. actionVerbs: Does the resume use strong, varied action verbs instead of passive phrases like "responsible for"?
-          3. quantifiableMetrics: Are achievements backed by numbers, percentages, or concrete data to show impact?
-          4. clarity: Is the language clear, concise, and free of jargon? Is it easy to understand the candidate's value proposition?
+          Resume Content:
+          "${resumeText.slice(0, 10000)}"
+          
+          Provide a comprehensive analysis in a strict JSON format. Evaluate the following four key areas, providing a 'pass' (boolean, true if meets standard, false if needs significant improvement) and 'feedback' (string, 1-2 concise sentences for actionable advice) for each:
+          1.  atsFriendly: Does the format (e.g., single-column, no tables/graphics, standard fonts) make it easily parsable by an Applicant Tracking System? Penalize for complex layouts.
+          2.  actionVerbs: Does the resume consistently use strong, dynamic action verbs at the start of bullet points, avoiding passive language (e.g., "responsible for")?
+          3.  quantifiableMetrics: Are achievements backed by specific numbers, percentages, or concrete data to clearly demonstrate impact and results?
+          4.  clarity: Is the language clear, concise, and professional, free of excessive jargon? Is the candidate's value proposition and career narrative easy to understand?
 
-          Also provide an overall 'score' (number, 0-100) and a brief 'summary' (string, 2-3 sentences) of the resume's strengths and weaknesses.
+          Finally, provide an overall 'score' (number, 0-100) and a brief 'summary' (string, 2-3 sentences) of the resume's greatest strengths and most critical areas for improvement.
+
+          Ensure the JSON is perfectly valid and directly parsable. DO NOT include any conversational text outside the JSON.
         `;
 
         const schema = {
           type: Type.OBJECT,
           properties: {
-            score: { type: Type.NUMBER },
-            summary: { type: Type.STRING },
-            atsFriendly: { type: Type.OBJECT, properties: { pass: { type: Type.BOOLEAN }, feedback: { type: Type.STRING } } },
-            actionVerbs: { type: Type.OBJECT, properties: { pass: { type: Type.BOOLEAN }, feedback: { type: Type.STRING } } },
-            quantifiableMetrics: { type: Type.OBJECT, properties: { pass: { type: Type.BOOLEAN }, feedback: { type: Type.STRING } } },
-            clarity: { type: Type.OBJECT, properties: { pass: { type: Type.BOOLEAN }, feedback: { type: Type.STRING } } },
+            score: { type: Type.NUMBER, description: 'Overall resume health score (0-100).' },
+            summary: { type: Type.STRING, description: '2-3 sentence summary of strengths and areas for improvement.' },
+            atsFriendly: { 
+              type: Type.OBJECT, 
+              properties: { 
+                pass: { type: Type.BOOLEAN, description: 'True if ATS friendly, false otherwise.' }, 
+                feedback: { type: Type.STRING, description: 'Actionable feedback for ATS compatibility.' } 
+              },
+              required: ['pass', 'feedback']
+            },
+            actionVerbs: { 
+              type: Type.OBJECT, 
+              properties: { 
+                pass: { type: Type.BOOLEAN, description: 'True if strong action verbs are used, false otherwise.' }, 
+                feedback: { type: Type.STRING, description: 'Actionable feedback for action verb usage.' } 
+              },
+              required: ['pass', 'feedback']
+            },
+            quantifiableMetrics: { 
+              type: Type.OBJECT, 
+              properties: { 
+                pass: { type: Type.BOOLEAN, description: 'True if achievements are quantified, false otherwise.' }, 
+                feedback: { type: Type.STRING, description: 'Actionable feedback for quantifiable metrics.' } 
+              },
+              required: ['pass', 'feedback']
+            },
+            clarity: { 
+              type: Type.OBJECT, 
+              properties: { 
+                pass: { type: Type.BOOLEAN, description: 'True if language is clear and concise, false otherwise.' }, 
+                feedback: { type: Type.STRING, description: 'Actionable feedback for clarity and conciseness.' } 
+              },
+              required: ['pass', 'feedback']
+            },
           },
           required: ['score', 'summary', 'atsFriendly', 'actionVerbs', 'quantifiableMetrics', 'clarity']
         };
@@ -575,102 +700,109 @@ export const geminiService = {
         });
 
         return JSON.parse(response.text || '{}');
-    });
+    }, LogActionType.RESUME_GRADE, `Resume grading for profile`, currentUser);
   },
 
   /**
    * Analyzes a user's answer to an interview question.
    */
-  analyzeInterviewAnswer: async (question: string, answer: string, resumeContext: string): Promise<string> => {
+  analyzeInterviewAnswer: async (question: string, answer: string, resumeContext: string, currentUser: string): Promise<string> => {
     return handleApiCall(async () => {
         const ai = getClient();
         const prompt = `
-          You are an interview coach. The user is practicing for an interview.
-          Their resume summary is: "${resumeContext.slice(0, 2000)}"
+          You are an expert, constructive interview coach. The user is practicing for an interview.
+          
+          Candidate's Resume Summary (for context): "${resumeContext.slice(0, 1500)}"
           
           You asked the question: "${question}"
           The user responded: "${answer}"
 
-          Provide concise, constructive feedback on their answer. Focus on:
-          - Clarity and conciseness.
-          - Use of the STAR (Situation, Task, Action, Result) method for behavioral questions.
-          - Relevance to the question.
-          - Confidence and impact.
+          Provide concise, constructive feedback on their answer. Focus on the following key areas:
+          -   **Clarity and Conciseness:** Was the answer easy to understand and to the point?
+          -   **STAR Method Application:** For behavioral questions, did they effectively use the STAR (Situation, Task, Action, Result) method?
+          -   **Relevance:** Was the answer directly relevant to the question asked and the job context (if applicable)?
+          -   **Impact & Confidence:** Did the answer highlight their achievements and demonstrate confidence?
           
-          Keep the feedback to 2-3 short paragraphs in Markdown format. Start with a positive reinforcement, then provide areas for improvement.
+          Keep the feedback to 2-3 short, clear paragraphs in Markdown format. Start with positive reinforcement, then provide 1-2 specific, actionable areas for improvement. Avoid generic statements.
+          DO NOT include any conversational text or introductory phrases outside the feedback.
         `;
         const response = await ai.models.generateContent({
           model: MODEL_FAST,
           contents: prompt,
         });
         return response.text || "Could not analyze the answer. Please try again.";
-    });
+    }, LogActionType.MOCK_INTERVIEW_FEEDBACK, `Mock interview feedback for question: "${question}"`, currentUser);
   },
 
   /**
    * Optimizes a LinkedIn profile section.
    */
-  optimizeLinkedInProfile: async (section: 'headline' | 'about', currentText: string, profile: UserProfile): Promise<string> => {
+  optimizeLinkedInProfile: async (section: 'headline' | 'about', currentText: string, profile: UserProfile, currentUser: string): Promise<string> => {
     return handleApiCall(async () => {
         const ai = getClient();
         const prompt = `
-          Act as a LinkedIn branding expert. The user wants to optimize their profile's ${section} section.
-
-          User's Profile Context:
-          - Name: ${profile.name}
-          - Current/Target Title: ${profile.title || profile.targetRoles}
-          - Resume Summary: ${profile.resumeContent.slice(0, 3000)}
-
-          Current ${section} section text: "${currentText}"
-
-          Task: Rewrite the user's ${section} section to be more impactful, professional, and keyword-rich for their target roles.
-          - For a 'headline', make it descriptive and attention-grabbing (around 120-220 characters).
-          - For an 'about' section, write a compelling narrative in the first person (2-4 paragraphs).
+          Act as a LinkedIn branding and career expert. The user wants to optimize their LinkedIn profile's "${section}" section.
           
-          Output only the rewritten text, without any introductory phrases like "Here is the new headline...". Do not wrap in code blocks.
+          User's Key Profile Information (for context and personalization):
+          - Name: ${profile.name || 'Job Seeker'}
+          - Current/Target Title: ${profile.title || profile.targetRoles || 'Experienced Professional'}
+          - Core Skills from Parsed Resume: ${profile.parsedData?.skills?.join(', ') || 'N/A'}
+          - General Resume Summary: ${profile.resumeContent.slice(0, 2000) || 'N/A'}
+
+          Current LinkedIn "${section}" section text:
+          "${currentText.slice(0, 2000)}"
+
+          Task: Rewrite the user's "${section}" section to be highly impactful, professional, keyword-rich for their target roles, and engaging.
+          - If the section is 'headline', make it descriptive, attention-grabbing, and keyword-optimized (around 120-220 characters, max 3-4 distinct phrases separated by | or commas). Incorporate target title and key skills.
+          - If the section is 'about', write a compelling narrative in the first person (2-4 concise paragraphs). Highlight achievements, core competencies, passion, and career aspirations, integrating relevant keywords naturally.
+
+          Output ONLY the rewritten text for the "${section}" section. Do NOT include any introductory phrases (e.g., "Here is your new headline:"). Do NOT wrap the output in Markdown code blocks.
         `;
         const response = await ai.models.generateContent({
           model: MODEL_FAST,
           contents: prompt,
         });
         return response.text || `Failed to generate a new ${section}.`;
-    });
+    }, LogActionType.LINKEDIN_OPTIMIZE, `LinkedIn ${section} optimization`, currentUser);
   },
 
   /**
    * Drafts a professional networking message.
    */
-  draftNetworkingMessage: async (scenario: string, recipientInfo: string, profile: UserProfile): Promise<string> => {
+  draftNetworkingMessage: async (scenario: string, recipientInfo: string, profile: UserProfile, currentUser: string): Promise<string> => {
     return handleApiCall(async () => {
         const ai = getClient();
         const prompt = `
-          You are a career communications expert. Draft a professional networking message.
+          You are an expert career communications strategist. Your task is to draft a concise, professional, and effective networking message for the user.
 
-          User's Profile:
-          - Name: ${profile.name}
-          - Current/Target Title: ${profile.title || profile.targetRoles}
+          User's Profile Context (for personalization):
+          - Name: ${profile.name || 'Job Seeker'}
+          - Current/Target Title: ${profile.title || profile.targetRoles || 'Professional'}
+          - LinkedIn Profile: ${profile.linkedin || 'N/A'}
 
-          Message Details:
-          - Scenario: "${scenario}"
-          - Recipient Info: "${recipientInfo}"
+          Networking Scenario: "${scenario.slice(0, 1000)}" (e.g., "Connecting with a hiring manager after applying", "Reaching out to an alumnus for an informational interview")
+          Recipient Information: "${recipientInfo.slice(0, 1000)}" (e.g., "Jane Doe, Senior Recruiter at TechCorp, who I met at the XYZ conference")
 
-          Task: Write a concise, polite, and professional message (e.g., for LinkedIn) that fits the scenario. 
-          The message should be under 150 words.
-          
-          Output only the message text. Do not include a subject line or any introductory phrases.
+          Based on the scenario and recipient, write a polite, personalized, and professional message (suitable for LinkedIn InMail or a brief email).
+          The message should be under 150 words and include:
+          - A clear, concise opening stating the purpose of the message and how you know/found them.
+          - A brief, relevant connection point or value proposition (why you're reaching out to THIS person specifically, and what value you offer or seek).
+          - A clear, low-friction Call-to-Action (CTA) (e.g., "Would you be open to a brief virtual chat next week?", "Any advice you could offer on [specific topic]?").
+
+          Output ONLY the message text. Do NOT include a subject line, salutation (e.g., "Hi [Recipient Name],"), closing (e.g., "Sincerely,"), or any introductory/explanatory phrases. The message should be ready to paste after a greeting.
         `;
         const response = await ai.models.generateContent({
           model: MODEL_FAST,
           contents: prompt,
         });
         return response.text || "Failed to draft the message.";
-    });
+    }, LogActionType.NETWORKING_MESSAGE_DRAFT, `Networking message draft for scenario: "${scenario.slice(0, 50)}"`, currentUser);
   },
 
   /**
    * Composes various types of emails using specific prompts.
    */
-  composeEmail: async (emailPurpose: EmailPurpose, context: string, profile: UserProfile): Promise<string> => {
+  composeEmail: async (emailPurpose: EmailPurpose, context: string, profile: UserProfile, currentUser: string): Promise<string> => {
     return handleApiCall(async () => {
       const ai = getClient();
       let prompt: string;
@@ -683,10 +815,10 @@ export const geminiService = {
       // Dynamically construct prompt based on EmailPurpose
       switch (emailPurpose) {
         case EmailPurpose.PROFESSIONAL_REWRITE:
-          prompt = `Act as a senior communication specialist. Rewrite this email to sound professional, clear, concise, and polite while keeping my original intent. Improve tone, structure, grammar, and flow. My email: ${context}`;
+          prompt = `Act as a senior communication specialist. Rewrite this email to sound professional, clear, concise, and polite while keeping my original intent. Improve tone, structure, grammar, and flow. My email: "${context}"`;
           break;
         case EmailPurpose.COLD_EMAIL:
-          prompt = `Write a persuasive, short, high-impact cold email for this purpose: ${context}. Include a strong hook, value proposition, credibility (mentioning expertise as a ${userTitle}), and a simple CTA. Make it sound human, confident, and non-salesy.
+          prompt = `Write a persuasive, short, high-impact cold email for this purpose: "${context}". Include a strong hook, value proposition, credibility (mentioning expertise as a ${userTitle}), and a simple CTA. Make it sound human, confident, and non-salesy.
           Sender Info:
           Name: ${userName}
           Email: ${userEmail}
@@ -701,7 +833,7 @@ export const geminiService = {
           Phone: ${userPhone}`;
           break;
         case EmailPurpose.APOLOGY_EMAIL:
-          prompt = `Write a sincere, mature apology email for this situation: ${context}. Take accountability, express genuine understanding, offer a corrective step, and propose a positive way forward.
+          prompt = `Write a sincere, mature apology email for this situation: "${context}". Take accountability, express genuine understanding, offer a corrective step, and propose a positive way forward.
           Sender Info:
           Name: ${userName}
           Email: ${userEmail}`;
@@ -714,7 +846,7 @@ export const geminiService = {
           Phone: ${userPhone}`;
           break;
         case EmailPurpose.SIMPLIFY_EMAIL:
-          prompt = `Rewrite my email to be shorter, clearer, and easier to understand while keeping it professional and respectful. Remove unnecessary wording but increase impact. Email: ${context}`;
+          prompt = `Rewrite my email to be shorter, clearer, and easier to understand while keeping it professional and respectful. Remove unnecessary wording but increase impact. Email: "${context}"`;
           break;
         case EmailPurpose.SALES_EMAIL:
           prompt = `Write a high-conversion sales email for my product/service described as: "${context}". Include a strong hook, emotional benefits, social proof, clear explanation, and a compelling CTA. Keep it conversational and value-driven, not pushy.
@@ -735,6 +867,6 @@ export const geminiService = {
       let text = response.text || "Failed to generate email.";
       text = text.replace(/^```markdown\n/, '').replace(/^```\n/, '').replace(/\n```$/, '');
       return text;
-    });
+    }, LogActionType.EMAIL_COMPOSE, `Email composition for purpose: "${emailPurpose}"`, currentUser);
   },
 };

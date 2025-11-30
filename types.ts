@@ -1,4 +1,5 @@
 
+
 export enum JobStatus {
   WISHLIST = 'WISHLIST',
   APPLIED = 'APPLIED',
@@ -38,6 +39,7 @@ export interface Job {
   coverLetter?: string;
   interviewPrep?: InterviewQA[];
   activity?: JobActivity[];
+  username?: string; // New: Added for IndexedDB indexing
 }
 
 export interface InterviewQA {
@@ -157,6 +159,7 @@ export interface User {
   createdDate: number;
   lastLogin?: number;
   subscriptionTier: SubscriptionTier; // New: User's subscription tier
+  accountStatus: 'valid' | 'invalid'; // New: User account status
 }
 
 // New: For AI Email Assistant
@@ -170,7 +173,60 @@ export enum EmailPurpose {
   SALES_EMAIL = 'Sales Email',
 }
 
-export interface EmailComposeConfig {
-  purpose: EmailPurpose;
-  context: string; // The original email, purpose details, product description, etc.
+// New: For local data backup/restore
+export interface AppBackupData {
+  users: User[];
+  profiles: Record<string, UserProfile>;
+  jobs: Record<string, Job[]>;
+  recentSearches: RecentSearchQuery[];
+  activityLogs: AppActivityLogEntry[]; // NEW: For activity log backup
+}
+
+// New: For application activity logging
+export enum LogActionType {
+  USER_SIGNUP = 'User Signed Up',
+  USER_LOGIN = 'User Logged In',
+  USER_LOGOUT = 'User Logged Out',
+  USER_LOGIN_FAILED = 'User Login Failed', // NEW: Added login failed
+  USER_INACTIVE_LOGIN_ATTEMPT = 'User Inactive Account Login Attempt', // NEW: Added inactive account login attempt
+  JOB_ADD = 'Job Added',
+  JOB_UPDATE = 'Job Updated',
+  JOB_DELETE = 'Job Deleted',
+  PROFILE_SAVE = 'Profile Saved',
+  RESUME_PARSE = 'Resume Parsed (AI)',
+  JOB_SEARCH = 'Job Search Run (AI)',
+  JOB_ANALYSIS = 'Job Analysis Run (AI)',
+  RESUME_TAILOR = 'Resume Tailored (AI)',
+  COVER_LETTER_GENERATE = 'Cover Letter Generated (AI)',
+  INTERVIEW_PREP_GENERATE = 'Interview Prep Generated (AI)',
+  MOCK_INTERVIEW_FEEDBACK = 'Mock Interview Feedback (AI)',
+  SKILL_DEV_PATH_GENERATE = 'Skill Development Path Generated (AI)',
+  LINKEDIN_OPTIMIZE = 'LinkedIn Profile Optimized (AI)',
+  NETWORKING_MESSAGE_DRAFT = 'Networking Message Drafted (AI)',
+  EMAIL_COMPOSE = 'Email Composed (AI)',
+  RESUME_GRADE = 'Resume Graded (AI)',
+  SUBSCRIPTION_CHANGE = 'Subscription Tier Changed',
+  ADMIN_DATA_CLEAR = 'Admin Cleared All Data',
+  ADMIN_DATA_EXPORT = 'Admin Exported All Data',
+  ADMIN_DATA_IMPORT = 'Admin Imported All Data',
+  ADMIN_USER_CRED_RESET = 'Admin Reset User Credentials',
+  ADMIN_USER_STATUS_CHANGE = 'Admin Changed User Status', // NEW: Added change user status
+  ADMIN_LOGS_CLEAR = 'Admin Cleared Activity Logs', // NEW: Added clear activity logs
+  APP_INIT = 'Application Initialized',
+  ERROR_OCCURRED = 'Error Occurred',
+  OFFLINE_EVENT = 'Offline Mode Detected',
+  ONLINE_EVENT = 'Online Mode Detected',
+  GEOLOCATION_FETCH = 'Geolocation Fetched',
+  API_KEY_MISSING = 'API Key Missing',
+  OTP_GENERATED = 'OTP Generated',
+  OTP_VERIFIED = 'OTP Verified',
+}
+
+export interface AppActivityLogEntry {
+  id: string; // Unique ID (timestamp + random)
+  timestamp: number;
+  username: string | 'system' | 'guest'; // User who performed action or 'system' or 'guest'
+  actionType: LogActionType;
+  details: string; // Detailed description of the action
+  severity: 'info' | 'warn' | 'error' | 'debug'; // Log level
 }

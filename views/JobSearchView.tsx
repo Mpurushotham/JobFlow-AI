@@ -1,22 +1,26 @@
 
+
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 // FIX: Added RefreshCcw import from 'lucide-react'.
 import { Search, MapPin, Building, ExternalLink, Plus, RotateCcw, Factory, Briefcase, AlertTriangle, ChevronLeft, ChevronRight, Sparkles, CheckCircle, XCircle, Info, RefreshCcw, TrendingUp } from 'lucide-react';
-import { Job, JobStatus, SearchResult, SearchFilters, RecentSearchQuery, UserProfile, SubscriptionTier } from '../types';
+import { Job, JobStatus, SearchResult, SearchFilters, RecentSearchQuery, UserProfile, SubscriptionTier, LogActionType } from '../types';
 import { geminiService } from '../services/geminiService';
 import { useNotifications } from '../context/NotificationContext';
 import { LoadingOverlay } from '../components/LoadingOverlay';
 import { storageService } from '../services/storageService';
 import { useAuth } from '../context/AuthContext'; // Assuming AuthContext provides currentUser (username)
 import { MatchAnalysisPopover } from '../components/MatchAnalysisPopover'; // New component for popover
+import { logService } from '../services/logService'; // Import logService
 
 interface JobSearchViewProps {
   onAddJobFound: (job: Job) => void;
   profile: UserProfile; // Pass user profile for resume content
   subscriptionTier: SubscriptionTier | null; // New: User's subscription tier
+  currentUser: string; // Add currentUser prop
 }
 
-const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, subscriptionTier }) => {
+const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, subscriptionTier, currentUser }) => {
   const initialFilters: SearchFilters = {
     query: '',
     location: '',
@@ -45,11 +49,17 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
   const analysisCountRef = useRef(0); // Track analysis count for free users
   
   const { addNotification } = useNotifications();
-  const { currentUser } = useAuth(); // Assuming useAuth provides the current user (if needed for profile access)
+  // const { currentUser } = useAuth(); // Assuming useAuth provides the current user (if needed for profile access)
+  const isOffline = !navigator.onLine;
+
 
   // Load recent searches on component mount
   useEffect(() => {
-    setRecentSearches(storageService.getRecentSearches());
+    // FIX: Await the promise from storageService.getRecentSearches()
+    const loadRecentSearches = async () => {
+      setRecentSearches(await storageService.getRecentSearches());
+    };
+    loadRecentSearches();
   }, []);
 
   const handleFilterChange = (field: keyof SearchFilters, value: string) => {
@@ -58,8 +68,14 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
 
   const handleSearch = async (e?: React.FormEvent) => {
     e?.preventDefault();
+    if (isOffline) {
+      addNotification("Cannot search for jobs: You are offline.", "info");
+      logService.log(currentUser, LogActionType.JOB_SEARCH, `Blocked search for "${filters.query}" - offline.`, 'warn');
+      return;
+    }
     if (!filters.query.trim()) {
       addNotification('Please enter a search query.', 'error');
+      logService.log(currentUser, LogActionType.JOB_SEARCH, 'Attempted search with empty query.', 'warn');
       return;
     }
     setLoading(true);
@@ -70,29 +86,38 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
     setAnalyzingJobId(null); // Clear any ongoing analysis
 
     try {
-      const { results: newResults, wasFallback } = await geminiService.searchJobs(filters);
+      const { results: newResults, wasFallback } = await geminiService.searchJobs(filters, currentUser);
       let resultsToShow = newResults;
 
       if (subscriptionTier === SubscriptionTier.FREE && newResults.length > freeTierSearchLimit) {
         resultsToShow = newResults.slice(0, freeTierSearchLimit);
         addNotification(`Displaying first ${freeTierSearchLimit} results. Upgrade to AI Pro for unlimited search results!`, 'info');
+        logService.log(currentUser, LogActionType.JOB_SEARCH, `Free tier limit applied: showing first ${freeTierSearchLimit} of ${newResults.length} results.`, 'info');
       }
 
       setAllSearchResults(resultsToShow);
       setFallbackActive(wasFallback);
       
       if (resultsToShow.length > 0) {
-        storageService.saveRecentSearch(filters.query); // Save successful query
-        setRecentSearches(storageService.getRecentSearches()); // Reload recent searches
+        await storageService.saveRecentSearch(filters.query); // Save successful query
+        // FIX: Await the promise from storageService.getRecentSearches()
+        setRecentSearches(await storageService.getRecentSearches()); // Reload recent searches
         addNotification(`Found ${resultsToShow.length} job(s)!`, 'success');
+        logService.log(currentUser, LogActionType.JOB_SEARCH, `Search for "${filters.query}" found ${resultsToShow.length} jobs.`, 'info');
       } else {
         addNotification('No jobs found matching your criteria. Try adjusting filters or a broader search.', 'info');
+        logService.log(currentUser, LogActionType.JOB_SEARCH, `Search for "${filters.query}" yielded no results.`, 'info');
       }
     } catch (e: any) {
       if (e.message === 'RATE_LIMIT_EXCEEDED') {
         addNotification("You've reached the free tier limit. Please wait a minute before trying again.", 'info');
+        // Logged by handleApiCall
+      } else if (e.message === 'OFFLINE') {
+        addNotification("Cannot search for jobs: You are offline.", "info");
+        // Logged by handleApiCall
       } else {
         addNotification(`Failed to search for jobs: ${e.message}`, 'error');
+        // Logged by handleApiCall
       }
     } finally {
       setLoading(false);
@@ -106,45 +131,61 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
     setCurrentPage(1);
     setAnalyzingJobId(null);
     analysisCountRef.current = 0; // Reset analysis count
+    logService.log(currentUser, LogActionType.JOB_SEARCH, 'Search filters reset.', 'info');
   };
 
   const handleRecentSearchClick = (query: string) => {
     setFilters(prev => ({ ...prev, query }));
+    logService.log(currentUser, LogActionType.JOB_SEARCH, `Recent search query "${query}" loaded.`, 'debug');
     // Optionally trigger search automatically or let user click search
     // handleSearch(); 
   };
 
   const handleAnalyzeJobMatch = async (searchResultId: string, jobTitle: string, jobSummary: string) => {
+    if (isOffline) {
+      addNotification("Cannot run analysis: You are offline.", "info");
+      logService.log(currentUser, LogActionType.JOB_ANALYSIS, `Blocked analysis for "${jobTitle}" - offline.`, 'warn');
+      return;
+    }
     if (!profile.resumeContent) {
       addNotification("Please upload your master resume in the Profile section to use AI match analysis.", 'info');
+      logService.log(currentUser, LogActionType.JOB_ANALYSIS, `Blocked analysis for "${jobTitle}" - no resume content.`, 'warn');
       return;
     }
 
     if (subscriptionTier === SubscriptionTier.FREE) {
       if (analysisCountRef.current >= freeTierAnalysisLimit) {
         addNotification(`Free tier limit reached for AI Match Analysis (${freeTierAnalysisLimit} per session). Upgrade to AI Pro for unlimited analyses!`, 'info');
+        logService.log(currentUser, LogActionType.JOB_ANALYSIS, `Blocked analysis for "${jobTitle}" - free tier limit reached.`, 'warn');
         return;
       }
       addNotification(`Free tier analysis: ${analysisCountRef.current + 1}/${freeTierAnalysisLimit}`, 'info');
+      logService.log(currentUser, LogActionType.JOB_ANALYSIS, `Free tier analysis attempt ${analysisCountRef.current + 1}/${freeTierAnalysisLimit} for "${jobTitle}".`, 'debug');
     }
 
     setAnalyzingJobId(searchResultId);
     try {
-      const analysisResult = await geminiService.analyzeJob(profile.resumeContent, jobTitle, jobSummary);
+      const analysisResult = await geminiService.analyzeJob(profile.resumeContent, jobTitle, jobSummary, currentUser);
       setAllSearchResults(prevResults => prevResults.map(jr => 
         jr.url + jr.title === searchResultId 
           ? { ...jr, matchScore: analysisResult.score, analysis: JSON.stringify(analysisResult) } 
           : jr
       ));
       addNotification('Match analysis complete!', 'success');
+      logService.log(currentUser, LogActionType.JOB_ANALYSIS, `Match analysis for "${jobTitle}" completed with score ${analysisResult.score}.`, 'info');
       if (subscriptionTier === SubscriptionTier.FREE) {
         analysisCountRef.current += 1; // Increment count only on success
       }
     } catch (e: any) {
       if (e.message === 'RATE_LIMIT_EXCEEDED') {
         addNotification("You've reached the free tier limit for AI analysis. Please wait a minute before trying again.", 'info');
+        // Logged by handleApiCall
+      } else if (e.message === 'OFFLINE') {
+        addNotification("Cannot analyze job match: You are offline.", "info");
+        // Logged by handleApiCall
       } else {
         addNotification("Failed to run AI match analysis. Please try again.", 'error');
+        // Logged by handleApiCall
       }
     } finally {
       setAnalyzingJobId(null);
@@ -152,28 +193,39 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
   };
 
   const handleUseCurrentLocation = async () => {
+    if (isOffline) {
+      addNotification("Cannot fetch current location: You are offline.", "info");
+      logService.log(currentUser, LogActionType.GEOLOCATION_FETCH, 'Blocked location fetch - offline.', 'warn');
+      return;
+    }
     setIsFetchingLocation(true);
     addNotification('Attempting to fetch your current location...', 'info');
+    logService.log(currentUser, LogActionType.GEOLOCATION_FETCH, 'Attempted to fetch current location.', 'info');
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         async (position) => {
           const { latitude, longitude } = position.coords;
           try {
-            const data = await geminiService.getWeatherByCoords(latitude, longitude);
+            const data = await geminiService.getWeatherByCoords(latitude, longitude, currentUser);
             // FIX: Access `data.country` directly as its type has been updated in geminiService.ts
             if (data?.city && data?.country) {
               handleFilterChange('location', `${data.city}, ${data.country}`);
               addNotification(`Location set to ${data.city}, ${data.country}`, 'success');
+              logService.log(currentUser, LogActionType.GEOLOCATION_FETCH, `Location set to ${data.city}, ${data.country}.`, 'info');
             } else {
               addNotification('Could not determine city/country from coordinates.', 'info');
+              logService.log(currentUser, LogActionType.GEOLOCATION_FETCH, 'Could not determine city/country from coordinates.', 'warn');
             }
           } catch (error: any) {
             if (error.message === 'RATE_LIMIT_EXCEEDED') {
               addNotification("Location API limit reached. Please wait a minute before trying again.", 'info');
+            } else if (error.message === 'OFFLINE') {
+              addNotification("Cannot fetch location: You are offline.", "info");
             } else {
               console.error("Error fetching location data:", error);
               addNotification("Failed to fetch location. Please try again.", 'error');
             }
+            logService.log(currentUser, LogActionType.ERROR_OCCURRED, `Failed to fetch location data: ${error.message}`, 'error');
           } finally {
             setIsFetchingLocation(false);
           }
@@ -182,8 +234,10 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
           console.error("Geolocation Error:", error);
           if (error.code === error.PERMISSION_DENIED) {
             addNotification("Geolocation permission denied. Please enable location services for this site.", 'error');
+            logService.log(currentUser, LogActionType.ERROR_OCCURRED, 'Geolocation permission denied.', 'warn');
           } else {
             addNotification(`Failed to get your location: ${error.message}`, 'error');
+            logService.log(currentUser, LogActionType.ERROR_OCCURRED, `Failed to get geolocation: ${error.message}`, 'error');
           }
           setIsFetchingLocation(false);
         },
@@ -191,6 +245,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
       );
     } else {
       addNotification("Geolocation is not supported by your browser.", 'error');
+      logService.log(currentUser, LogActionType.ERROR_OCCURRED, 'Geolocation not supported by browser.', 'error');
       setIsFetchingLocation(false);
     }
   };
@@ -214,6 +269,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
         <button
           onClick={handleResetFilters}
           className="bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-300 px-5 py-2.5 rounded-xl flex items-center gap-2 font-bold transition-colors shadow-sm"
+          aria-label="Reset all search filters and results"
         >
           <RotateCcw size={18} /> Reset Filters
         </button>
@@ -225,7 +281,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
           <div className="lg:col-span-2">
             <label htmlFor="query" className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-2">Keywords</label>
             <div className="relative">
-              <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" aria-hidden="true" />
               <input
                 id="query"
                 type="text"
@@ -234,6 +290,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
                 className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
                 placeholder="e.g. Software Engineer, Frontend, React"
                 required
+                aria-label="Job search keywords"
               />
             </div>
             {recentSearches.length > 0 && (
@@ -247,6 +304,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
                       onClick={() => handleRecentSearchClick(rs.query)}
                       className="px-3 py-1 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 rounded-full text-xs font-bold hover:bg-indigo-200 dark:hover:bg-indigo-900/50 transition-colors"
                       title={`Last searched: ${new Date(rs.timestamp).toLocaleDateString()}`}
+                      aria-label={`Search for ${rs.query}`}
                     >
                       {rs.query}
                     </button>
@@ -258,7 +316,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
           <div>
             <label htmlFor="location" className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-2">Location</label>
             <div className="relative flex items-center">
-              <MapPin size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+              <MapPin size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" aria-hidden="true" />
               <input
                 id="location"
                 type="text"
@@ -266,14 +324,16 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
                 onChange={e => handleFilterChange('location', e.target.value)}
                 className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
                 placeholder="e.g. London, Remote"
+                aria-label="Job location filter"
               />
               {!filters.location && (
                 <button
                   type="button"
                   onClick={handleUseCurrentLocation}
-                  disabled={isFetchingLocation}
-                  title="Use my current location"
+                  disabled={isFetchingLocation || isOffline}
+                  title={isOffline ? "Requires internet connection" : "Use my current location"}
                   className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  aria-label={isFetchingLocation ? "Fetching location..." : "Use current location"}
                 >
                   {isFetchingLocation ? <RefreshCcw size={18} className="animate-spin" /> : <MapPin size={18} />}
                 </button>
@@ -283,7 +343,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
           <div>
             <label htmlFor="industry" className="block text-sm font-bold text-gray-700 dark:text-slate-300 mb-2">Industry</label>
             <div className="relative">
-              <Factory size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Factory size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" aria-hidden="true" />
               <input
                 id="industry"
                 type="text"
@@ -291,6 +351,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
                 onChange={e => handleFilterChange('industry', e.target.value)}
                 className="w-full pl-12 pr-4 py-3 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
                 placeholder="e.g. Tech, Finance"
+                aria-label="Industry filter"
               />
             </div>
           </div>
@@ -302,6 +363,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
               value={filters.datePosted}
               onChange={e => handleFilterChange('datePosted', e.target.value as SearchFilters['datePosted'])}
               className="w-full p-3 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+              aria-label="Date posted filter"
             >
               <option value="any">Anytime</option>
               <option value="24h">Past 24 hours</option>
@@ -316,6 +378,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
               value={filters.experienceLevel}
               onChange={e => handleFilterChange('experienceLevel', e.target.value as SearchFilters['experienceLevel'])}
               className="w-full p-3 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+              aria-label="Experience level filter"
             >
               <option value="any">Any</option>
               <option value="internship">Internship</option>
@@ -332,6 +395,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
               value={filters.jobType}
               onChange={e => handleFilterChange('jobType', e.target.value as SearchFilters['jobType'])}
               className="w-full p-3 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+              aria-label="Job type filter"
             >
               <option value="any">Any</option>
               <option value="full-time">Full-time</option>
@@ -346,6 +410,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
               value={filters.remote}
               onChange={e => handleFilterChange('remote', e.target.value as SearchFilters['remote'])}
               className="w-full p-3 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+              aria-label="Work arrangement filter"
             >
               <option value="any">Any</option>
               <option value="on-site">On-site</option>
@@ -360,6 +425,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
               value={filters.salaryRange}
               onChange={e => handleFilterChange('salaryRange', e.target.value as SearchFilters['salaryRange'])}
               className="w-full p-3 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+              aria-label="Salary range filter"
             >
               <option value="any">Any</option>
               <option value="below_50k">Below $50K</option>
@@ -376,6 +442,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
               value={filters.seniority}
               onChange={e => handleFilterChange('seniority', e.target.value as SearchFilters['seniority'])}
               className="w-full p-3 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+              aria-label="Seniority level filter"
             >
               <option value="any">Any</option>
               <option value="junior">Junior</option>
@@ -388,8 +455,10 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
           <div className="lg:col-span-4 flex justify-end">
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || isOffline}
               className="bg-indigo-600 text-white px-8 py-4 rounded-xl font-bold hover:bg-indigo-700 transition-colors flex items-center gap-2 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label={loading ? loadingMessage : "Search Jobs"}
+              title={isOffline ? "Requires internet connection" : ""}
             >
               {loading ? loadingMessage : <><Search size={20} /> Search Jobs</>}
             </button>
@@ -402,39 +471,39 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
       {!loading && allSearchResults.length > 0 && (
         <div className="mt-8 flex-1 flex flex-col">
           <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">Search Results ({allSearchResults.length}{subscriptionTier === SubscriptionTier.FREE ? ` (showing first ${freeTierSearchLimit})` : ''})</h3>
-          <p className="text-sm text-gray-500 dark:text-slate-400 mb-4 flex items-center gap-2">
-            <Info size={16} className="text-indigo-400 flex-shrink-0" />
+          <p className="text-sm text-gray-500 dark:text-slate-400 mb-4 flex items-center gap-2" role="status">
+            <Info size={16} className="text-indigo-400 flex-shrink-0" aria-hidden="true" />
             Job links are dynamic and may expire. "Date Posted" and "Application Deadline" are not available for generic search results.
           </p>
           
           {fallbackActive && (
-            <div className="flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 p-4 rounded-xl border border-amber-100 dark:border-amber-800 text-amber-900 dark:text-amber-300 mb-6 animate-fade-in">
-              <AlertTriangle size={20} className="text-amber-500 flex-shrink-0" />
+            <div className="flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 p-4 rounded-xl border border-amber-100 dark:border-amber-800 text-amber-900 dark:text-amber-300 mb-6 animate-fade-in" role="alert">
+              <AlertTriangle size={20} className="text-amber-500 flex-shrink-0" aria-hidden="true" />
               <p className="text-sm">No jobs found for your specific filters. Showing broader results for "{filters.query}".</p>
             </div>
           )}
 
           {subscriptionTier === SubscriptionTier.FREE && allSearchResults.length >= freeTierSearchLimit && (
-            <div className="flex items-center gap-3 bg-purple-50 dark:bg-purple-900/20 p-4 rounded-xl border border-purple-100 dark:border-purple-800 text-purple-900 dark:text-purple-300 mb-6 animate-fade-in">
-              <TrendingUp size={20} className="text-purple-500 flex-shrink-0" />
+            <div className="flex items-center gap-3 bg-purple-50 dark:bg-purple-900/20 p-4 rounded-xl border border-purple-100 dark:border-purple-800 text-purple-900 dark:text-purple-300 mb-6 animate-fade-in" role="alert">
+              <TrendingUp size={20} className="text-purple-500 flex-shrink-0" aria-hidden="true" />
               <p className="text-sm">Only showing first {freeTierSearchLimit} results for Free users. <button onClick={() => {}} className="font-bold underline">Upgrade to AI Pro</button> for unlimited search results!</p>
             </div>
           )}
 
 
-          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 overflow-hidden flex-1 flex flex-col transition-colors">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 overflow-hidden flex-1 flex-col transition-colors">
             <div className="overflow-auto custom-scrollbar flex-1">
               <table className="w-full text-left border-collapse">
                 <thead className="bg-gray-50/80 dark:bg-slate-900/80 sticky top-0 z-10 backdrop-blur-md shadow-sm">
                   <tr>
-                    <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700 w-12">No.</th>
-                    <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700 w-1/4">Role</th>
-                    <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700 w-1/6">Company</th>
-                    <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700 w-1/6">Location</th>
-                    <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700 w-1/4">Description</th>
-                    <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700">Link</th>
-                    <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700">AI Match</th>
-                    <th className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700">Actions</th>
+                    <th scope="col" className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700 w-12">No.</th>
+                    <th scope="col" className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700 w-1/4">Role</th>
+                    <th scope="col" className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700 w-1/6">Company</th>
+                    <th scope="col" className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700 w-1/6">Location</th>
+                    <th scope="col" className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700 w-1/4">Description</th>
+                    <th scope="col" className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700">Link</th>
+                    <th scope="col" className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700">AI Match</th>
+                    <th scope="col" className="p-4 text-xs font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100 dark:border-slate-700">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 dark:divide-slate-700">
@@ -468,11 +537,11 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
                         </td>
                         <td className="p-4">
                           {hasValidUrl ? (
-                            <a href={res.url} target="_blank" rel="noreferrer" className="text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 p-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors flex items-center justify-center" title="View Job Ad">
+                            <a href={res.url} target="_blank" rel="noreferrer" className="text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 p-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg transition-colors flex items-center justify-center" title="View Job Ad" aria-label={`View job ad for ${res.title}`}>
                               <ExternalLink size={18} />
                             </a>
                           ) : (
-                            <span className="text-gray-400 dark:text-slate-600 opacity-60 cursor-not-allowed flex items-center justify-center p-2" title="No direct link available">
+                            <span className="text-gray-400 dark:text-slate-600 opacity-60 cursor-not-allowed flex items-center justify-center p-2" title="No direct link available" aria-label="No job link available">
                               <ExternalLink size={18} />
                             </span>
                           )}
@@ -480,14 +549,18 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
                         <td className="p-4 relative">
                           {isAnalyzing ? (
                             <div className="flex items-center justify-center">
-                              <RefreshCcw size={16} className="animate-spin text-indigo-500" />
+                              <RefreshCcw size={16} className="animate-spin text-indigo-500" aria-hidden="true" />
                             </div>
                           ) : res.matchScore !== undefined ? (
                             <MatchAnalysisPopover analysis={analysisData} score={res.matchScore}>
                               <span className={`px-3 py-1.5 rounded-full text-xs font-bold cursor-help border 
                                 ${res.matchScore >= 80 ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800' :
                                 res.matchScore >= 50 ? 'bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-800' :
-                                'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800'}`}>
+                                'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800'}`}
+                                aria-label={`Job match score: ${res.matchScore}%`}
+                                role="status"
+                                tabIndex={0}
+                                >
                                 {res.matchScore}%
                               </span>
                             </MatchAnalysisPopover>
@@ -495,11 +568,12 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
                             <button
                               onClick={() => handleAnalyzeJobMatch(uniqueId, res.title, res.summary)}
                               className={`bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 px-3 py-1.5 rounded-xl text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 flex items-center gap-1 transition-colors whitespace-nowrap
-                                ${!profile.resumeContent || isFreeTierAnalysisLimitReached ? 'opacity-50 cursor-not-allowed' : ''}`}
-                              title={!profile.resumeContent ? "Add your master resume in Profile to use this feature" : isFreeTierAnalysisLimitReached ? `Free tier limit reached for AI Match Analysis (${freeTierAnalysisLimit} per session). Upgrade to AI Pro for unlimited analyses!` : "Analyze match with your resume"}
-                              disabled={!profile.resumeContent || isFreeTierAnalysisLimitReached}
+                                ${!profile.resumeContent || isFreeTierAnalysisLimitReached || isOffline ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              title={isOffline ? "Requires internet connection" : !profile.resumeContent ? "Add your master resume in Profile to use this feature" : isFreeTierAnalysisLimitReached ? `Free tier limit reached for AI Match Analysis (${freeTierAnalysisLimit} per session). Upgrade to AI Pro for unlimited analyses!` : "Analyze match with your resume"}
+                              disabled={!profile.resumeContent || isFreeTierAnalysisLimitReached || isOffline}
+                              aria-label="Analyze job match"
                             >
-                              <Sparkles size={14} /> Match
+                              <Sparkles size={14} aria-hidden="true" /> Match
                             </button>
                           )}
                         </td>
@@ -520,11 +594,13 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
                                 analysis: res.analysis,
                               });
                               addNotification(`${res.title} added to your board!`, 'success');
+                              logService.log(currentUser, LogActionType.JOB_ADD, `Job "${res.title}" added from search results.`, 'info');
                             }}
                             className="bg-gray-900 dark:bg-white text-white dark:text-gray-900 px-3 py-1.5 rounded-xl text-xs font-bold hover:bg-gray-800 dark:hover:bg-gray-200 flex items-center gap-1 whitespace-nowrap shadow-md hover:scale-105 transition-transform"
                             title="Add to My Job Board"
+                            aria-label={`Add ${res.title} to my job board`}
                           >
-                            <Plus size={14} /> Add
+                            <Plus size={14} aria-hidden="true" /> Add
                           </button>
                         </td>
                       </tr>
@@ -542,6 +618,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
                 disabled={currentPage === 1}
                 className="p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 title="Previous Page"
+                aria-label="Go to previous page of job results"
               >
                 <ChevronLeft size={20} />
               </button>
@@ -553,6 +630,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
                 disabled={currentPage === totalPages}
                 className="p-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 title="Next Page"
+                aria-label="Go to next page of job results"
               >
                 <ChevronRight size={20} />
               </button>
@@ -562,7 +640,7 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
       )}
       {!loading && allSearchResults.length === 0 && filters.query && ( // Only show if a query was made and no results found
         <div className="text-center py-12 text-gray-400 dark:text-slate-500">
-          <Briefcase size={48} className="mx-auto mb-4 opacity-10" />
+          <Briefcase size={48} className="mx-auto mb-4 opacity-10" aria-hidden="true" />
           <p>No jobs found matching your criteria. Try adjusting your filters.</p>
         </div>
       )}

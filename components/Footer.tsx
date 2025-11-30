@@ -18,7 +18,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate }) => (
        </div>
        <div className="flex items-center gap-3">
          <div className="flex items-center gap-1.5 font-medium text-gray-600 dark:text-slate-400 bg-gray-50 dark:bg-slate-700 px-3 py-1 rounded-full border border-gray-100 dark:border-slate-600">
-           Built with <Heart size={16} className="text-red-500 fill-red-500" /> by <span className="text-gray-900 dark:text-white font-bold">Purushotham Muktha</span>
+           Built with <Heart size={12} className="text-red-500 fill-red-500" /> by <span className="text-gray-900 dark:text-white font-bold">Purushotham Muktha</span>
          </div>
        </div>
     </div>

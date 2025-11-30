@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Phone } from 'lucide-react';
 import { countryData, CountryData } from '../utils/countryData'; // Import comprehensive country data
@@ -7,7 +6,7 @@ interface CountryCodeInputProps {
   value: string; // Expected format: "+[countryCode][phoneNumber]" or just "[phoneNumber]"
   onChange: (fullPhoneNumber: string, isValid: boolean) => void;
   disabled?: boolean;
-  onBlur?: (isValid: boolean) => void;
+  onBlur?: (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>) => void; // FIX: Changed onBlur prop type
   error?: string | null;
 }
 
@@ -63,7 +62,7 @@ export const CountryCodeInput: React.FC<CountryCodeInputProps> = ({ value, onCha
     setInternalError(valid || newNumber === '' ? null : 'Invalid phone number format.');
   };
 
-  const handleBlur = () => {
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement | HTMLSelectElement>) => { // FIX: Changed signature to accept event object
     const fullNumber = selectedCode + phoneNumber;
     const valid = isValidPhoneNumber(fullNumber);
     if (!valid && phoneNumber.trim() !== '') {
@@ -71,7 +70,7 @@ export const CountryCodeInput: React.FC<CountryCodeInputProps> = ({ value, onCha
     } else {
       setInternalError(null);
     }
-    if (onBlur) onBlur(valid);
+    if (onBlur) onBlur(e); // Pass the event object to parent's onBlur
   };
 
   const displayError = error || internalError;

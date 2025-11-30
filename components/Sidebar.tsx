@@ -1,5 +1,6 @@
 
 
+
 import React from 'react';
 import { 
   Home, 
@@ -17,7 +18,7 @@ import {
   Globe,
   Sun, Cloud, CloudRain, CloudSnow, Wind, RefreshCw, BrainCircuit, Wallet, Mail // Import weather icons and refresh, BrainCircuit, Wallet for pricing, Mail for email assistant
 } from 'lucide-react';
-import { ViewState, SubscriptionTier } from '../types';
+import { ViewState, SubscriptionTier, LogActionType } from '../types';
 import { ThemeToggle } from './ThemeToggle';
 
 interface SidebarProps {

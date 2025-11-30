@@ -1,6 +1,10 @@
+
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { authService } from '../services/authService';
 import { SubscriptionTier } from '../types';
+
+// Moved SESSION_KEY here for AuthContext's internal use for persistence
+const SESSION_KEY = 'jobflow_session'; 
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -35,6 +39,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setIsAdmin(isAdminLogin);
     setCurrentUser(username);
     setSubscriptionTier(userSubscriptionTier);
+    // CRITICAL FIX: Persist login state to sessionStorage when AuthContext's login is called
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ loggedIn: true, isAdmin: isAdminLogin, username: username, subscriptionTier: userSubscriptionTier }));
   }, []);
 
   const logout = useCallback(() => {

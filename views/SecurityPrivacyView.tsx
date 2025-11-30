@@ -109,7 +109,7 @@ By choosing JobFlow AI, you're opting for an application where **you retain full
 
       <div className="mt-12 text-center text-gray-500 dark:text-slate-400 text-sm">
         <p className="flex items-center justify-center gap-2">
-          <Info size={16} /> Have more questions? Contact support via <a href="mailto:support@jobflow.ai" className="text-indigo-600 dark:text-indigo-400 hover:underline">support@jobflow.ai</a>
+          <Info size={12} /> Have more questions? Contact support via <a href="mailto:support@jobflow.ai" className="text-indigo-600 dark:text-indigo-400 hover:underline">support@jobflow.ai</a>
         </p>
       </div>
     </div>
