@@ -493,8 +493,7 @@ const ResumeBuilderView: React.FC<ResumeBuilderViewProps> = ({ profile, onSavePr
                         </button>
                       ))}
                     </div>
-     
-
+                  </div>
             {/* Right Panel: Live Preview & ATS Dashboard */}
             <div className="p-8 bg-gray-50/50 dark:bg-slate-900/50 relative overflow-y-auto custom-scrollbar flex flex-col transition-colors">
               <h3 className="text-2xl font-bold text-gray-800 dark:text-white mb-6">Live Preview & ATS Score</h3>
@@ -579,10 +578,9 @@ const ResumeBuilderView: React.FC<ResumeBuilderViewProps> = ({ profile, onSavePr
                   )}
                 </div>
               </div>
-            </div>
-          </ProFeatureOverlay>
-      </div>
-    </div>
+         </ProFeatureOverlay>
+     </div>
+  </div>
   );
 };
 
