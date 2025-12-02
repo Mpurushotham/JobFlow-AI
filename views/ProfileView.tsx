@@ -1,7 +1,8 @@
+
+
 import React, { useState, useRef } from 'react';
-import { UserProfile, MasterResumeFitResult, SubscriptionTier, AppBackupData, LogActionType } from '../types';
-// FIX: Added Database icon to import from lucide-react.
-import { UserCircle, Mail, Phone, MapPin, Link as LinkIcon, Briefcase, FileText, Sparkles, Save, Edit2, Github, Globe, RefreshCcw, Target, CheckCircle, XCircle, Info, TrendingUp, UploadCloud, DownloadCloud, Database } from 'lucide-react'; 
+import { UserProfile, MasterResumeFitResult, SubscriptionTier, AppBackupData, LogActionType, ResumeData, ViewState } from '../types';
+import { UserCircle, Mail, Phone, MapPin, Link as LinkIcon, Briefcase, FileText, Sparkles, Save, Edit2, Github, Globe, RefreshCcw, Target, CheckCircle, XCircle, Info, TrendingUp, UploadCloud, DownloadCloud, Database, FileCheck, ArrowRight } from 'lucide-react'; 
 import { geminiService } from '../services/geminiService';
 import { useNotifications } from '../context/NotificationContext';
 import { LoadingOverlay } from '../components/LoadingOverlay';
@@ -13,20 +14,21 @@ import { logService } from '../services/logService'; // Import logService
 
 interface ProfileViewProps {
   profile: UserProfile;
-  onSave: (p: UserProfile) => void;
+  onSave: (p: UserProfile) => Promise<void>; // onSave is now async
   currentUser: string; // Add currentUser prop
+  setView: (view: ViewState) => void; // FIX: Add setView prop
 }
 
-const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave, currentUser }) => {
-  const { login, isAdmin, subscriptionTier } = useAuth(); // Get currentUser from AuthContext
+const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave, currentUser, setView }) => {
+  const { isAdmin, subscriptionTier } = useAuth(); // Get currentUser from AuthContext, add setView for navigation
   const [formData, setFormData] = useState(profile);
   const [isEditing, setIsEditing] = useState(false);
   const [parsing, setParsing] = useState(false);
+  const [generatingStructuredResume, setGeneratingStructuredResume] = useState(false); // New state for structured resume generation
   const [analyzingFit, setAnalyzingFit] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const { addNotification } = useNotifications();
-  // FIX: Declare fileInputRef
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isOffline = !navigator.onLine;
@@ -35,9 +37,10 @@ const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave, currentUser 
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleEmailChange = (value: string) => {
-    setFormData(prev => ({ ...prev, email: value }));
-    if (value && !isValidEmail(value)) {
+  const handleEmailChange = (value: string, validateNow: boolean = false) => {
+    const trimmedValue = value.trim();
+    setFormData(prev => ({ ...prev, email: trimmedValue }));
+    if (validateNow && trimmedValue && !isValidEmail(trimmedValue)) {
       setEmailError('Please enter a valid email address.');
     } else {
       setEmailError(null);
@@ -45,8 +48,9 @@ const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave, currentUser 
   };
 
   const handlePhoneChange = (fullPhoneNumber: string, isValid: boolean) => {
-    setFormData(prev => ({ ...prev, phone: fullPhoneNumber }));
-    if (fullPhoneNumber && !isValid) {
+    const trimmedNumber = fullPhoneNumber.trim();
+    setFormData(prev => ({ ...prev, phone: trimmedNumber }));
+    if (trimmedNumber && !isValid && trimmedNumber !== '') { // Only show error if not empty
       setPhoneError('Please enter a valid phone number, including country code.');
     } else {
       setPhoneError(null);
@@ -54,22 +58,22 @@ const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave, currentUser 
   };
 
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (emailError || phoneError) {
       addNotification('Please correct the errors in your contact information.', 'error');
       logService.log(currentUser, LogActionType.PROFILE_SAVE, 'Attempted to save profile with validation errors.', 'warn');
       return;
     }
-    onSave(formData);
+    await onSave(formData);
     setIsEditing(false);
     addNotification('Profile saved successfully!', 'success');
     logService.log(currentUser, LogActionType.PROFILE_SAVE, `Profile for "${currentUser}" saved.`, 'info');
   };
 
-  const handleClear = () => {
+  const handleClear = async () => {
     if (confirm("Are you sure you want to clear all profile data? This cannot be undone.")) {
       const emptyProfile: UserProfile = {
-        name: currentUser || '', // Keep current username
+        name: currentUser, // Keep current username
         title: '',
         email: '',
         phone: '',
@@ -77,15 +81,16 @@ const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave, currentUser 
         linkedin: '',
         github: '',
         website: '',
+        portfolio: '',
         resumeContent: '',
         targetRoles: '',
-        targetJobDescription: '', // Clear this too
-        masterResumeFit: '', // Clear this too
-        // FIX: Ensure it always uses the profile's tier before resetting.
+        targetJobDescription: '', 
+        masterResumeFit: '', 
+        structuredResume: null, // Clear structured resume too
         subscriptionTier: profile.subscriptionTier, // Retain the user's current tier
       };
       setFormData(emptyProfile);
-      onSave(emptyProfile);
+      await onSave(emptyProfile);
       setIsEditing(true);
       addNotification('Profile data cleared.', 'info');
       logService.log(currentUser, LogActionType.PROFILE_SAVE, 'Profile data cleared.', 'warn');
@@ -95,28 +100,40 @@ const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave, currentUser 
   const handleParseResume = async () => {
     if (isOffline) {
       addNotification("Cannot parse resume: You are offline.", "info");
+      logService.log(currentUser, LogActionType.RESUME_PARSE, 'Attempted to parse resume while offline.', 'warn');
       return;
     }
     if (!formData.resumeContent) {
       addNotification("Please paste resume text first.", 'error');
-      logService.log(currentUser, LogActionType.RESUME_PARSE, 'Attempted to parse empty resume.', 'warn');
+      logService.log(currentUser, LogActionType.RESUME_PARSE, 'Attempted to parse empty resume content.', 'warn');
       return;
     }
     setParsing(true);
     try {
-      const parsed = await geminiService.parseResume(formData.resumeContent, currentUser);
-      setFormData(prev => ({
-        ...prev,
-        name: parsed.fullName || prev.name,
-        email: parsed.email || prev.email,
-        phone: parsed.phone || prev.phone,
-        parsedData: parsed
-      }));
-      if (parsed.email && !isValidEmail(parsed.email)) setEmailError('Invalid email extracted. Please review.');
-      // Phone number validation from parse is tricky due to international formats.
-      // We'll rely on the CountryCodeInput's validation on direct input/blur.
+      // Corrected call to geminiService.parseResume
+      const parsed: ResumeData = await geminiService.parseResume(formData.resumeContent, currentUser);
+      
+      // Update formData with parsed contact details, which will be saved to structuredResume later
+      const updatedFormData: UserProfile = {
+        ...formData,
+        name: parsed.contact.name || formData.name,
+        email: parsed.contact.email || formData.email,
+        phone: parsed.contact.phone || formData.phone,
+        location: parsed.contact.location || formData.location,
+        linkedin: parsed.contact.linkedin || formData.linkedin,
+        github: parsed.contact.github || formData.github,
+        website: parsed.contact.website || formData.website,
+        portfolio: parsed.contact.portfolio || formData.portfolio,
+        // The structuredResume will also be updated with the result of parsing if user clicks "Generate Structured Resume"
+      };
+      setFormData(updatedFormData);
+      await onSave(updatedFormData); // Save updated profile immediately
+      
+      if (parsed.contact.email && !isValidEmail(parsed.contact.email)) setEmailError('Invalid email extracted. Please review.');
+      if (parsed.contact.phone && !isValidPhoneNumber(parsed.contact.phone)) setPhoneError('Invalid phone extracted. Please review.');
+
       addNotification("Auto-filled contact details from resume!", 'success');
-      logService.log(currentUser, LogActionType.RESUME_PARSE, 'Resume parsed successfully.', 'info');
+      logService.log(currentUser, LogActionType.RESUME_PARSE, 'Resume parsed successfully, contact details updated.', 'info');
     } catch (e: any) {
       if (e.message === 'RATE_LIMIT_EXCEEDED') {
         addNotification("You've reached the free tier limit. Please wait a minute before trying again.", 'info');
@@ -132,37 +149,81 @@ const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave, currentUser 
     }
   };
 
-  const handleAnalyzeMasterResumeFit = async () => {
+  const handleGenerateStructuredResume = async () => {
     if (isOffline) {
-      addNotification("Cannot analyze resume fit: You are offline.", "info");
+      addNotification("Cannot generate structured resume: You are offline.", "info");
+      logService.log(currentUser, LogActionType.RESUME_BUILDER_AI_AUTOFILL, 'Blocked structured resume generation while offline.', 'warn');
       return;
     }
     if (!formData.resumeContent) {
-      addNotification("Please provide your master resume content first.", 'error');
-      logService.log(currentUser, LogActionType.JOB_ANALYSIS, 'Attempted master resume fit analysis with empty resume.', 'warn');
+      addNotification("Please paste your raw resume text first.", 'error');
+      logService.log(currentUser, LogActionType.RESUME_BUILDER_AI_AUTOFILL, 'Attempted structured resume generation with empty raw resume.', 'warn');
+      return;
+    }
+    // Tier check for AI Pro feature
+    if (subscriptionTier === SubscriptionTier.FREE) {
+      addNotification("This feature requires an AI Pro subscription. Upgrade to unlock!", 'info');
+      logService.log(currentUser, LogActionType.RESUME_BUILDER_AI_AUTOFILL, 'Blocked structured resume generation: AI Pro feature for Free user.', 'warn');
+      return;
+    }
+
+    setGeneratingStructuredResume(true);
+    try {
+      const structuredResume: ResumeData = await geminiService.generateStructuredResume(formData.resumeContent, profile, currentUser);
+      const updatedFormData = { ...formData, structuredResume };
+      setFormData(updatedFormData);
+      await onSave(updatedFormData);
+      addNotification('Structured resume generated successfully! Now open the Resume Builder.', 'success');
+      logService.log(currentUser, LogActionType.RESUME_BUILDER_AI_AUTOFILL, 'Structured resume generated successfully.', 'info');
+    } catch (e: any) {
+      if (e.message === 'RATE_LIMIT_EXCEEDED') {
+        addNotification("You've reached the free tier limit. Please wait a minute before trying again.", 'info');
+        logService.log(currentUser, LogActionType.ERROR_OCCURRED, `Structured resume generation rate limit exceeded.`, 'warn');
+      } else if (e.message === 'OFFLINE') {
+        addNotification("Cannot generate structured resume: You are offline.", "info");
+      } else {
+        addNotification("Failed to generate structured resume. The format might be too complex or an error occurred.", 'error');
+        logService.log(currentUser, LogActionType.ERROR_OCCURRED, `Structured resume generation failed: ${e.message}`, 'error');
+      }
+    } finally {
+      setGeneratingStructuredResume(false);
+    }
+  };
+
+
+  const handleAnalyzeMasterResumeFit = async () => {
+    if (isOffline) {
+      addNotification("Cannot analyze resume fit: You are offline.", "info");
+      logService.log(currentUser, LogActionType.RESUME_ATS_EVALUATED, 'Attempted master resume fit analysis while offline.', 'warn');
+      return;
+    }
+    if (!formData.resumeContent && !formData.structuredResume) {
+      addNotification("Please provide your master resume content or structured resume first.", 'error');
+      logService.log(currentUser, LogActionType.RESUME_ATS_EVALUATED, 'Attempted master resume fit analysis with no resume content.', 'warn');
       return;
     }
     if (!formData.targetJobDescription) {
       addNotification("Please paste a target job description for analysis.", 'error');
-      logService.log(currentUser, LogActionType.JOB_ANALYSIS, 'Attempted master resume fit analysis with empty target job description.', 'warn');
+      logService.log(currentUser, LogActionType.RESUME_ATS_EVALUATED, 'Attempted master resume fit analysis with empty target job description.', 'warn');
       return;
     }
 
     // Tier check for AI Pro feature
-    if (profile.subscriptionTier === SubscriptionTier.FREE) {
+    if (subscriptionTier === SubscriptionTier.FREE) {
       addNotification("This feature requires an AI Pro subscription. Upgrade to unlock!", 'info');
-      logService.log(currentUser, LogActionType.JOB_ANALYSIS, 'Blocked master resume fit analysis: AI Pro feature for Free user.', 'warn');
+      logService.log(currentUser, LogActionType.RESUME_ATS_EVALUATED, 'Blocked master resume fit analysis: AI Pro feature for Free user.', 'warn');
       return;
     }
 
     setAnalyzingFit(true);
     try {
-      const result = await geminiService.analyzeMasterResumeFit(formData.resumeContent, formData.targetJobDescription, currentUser);
+      const resumeForAnalysis = formData.structuredResume ? geminiService.convertResumeDataToMarkdown(formData.structuredResume) : formData.resumeContent;
+      const result = await geminiService.analyzeMasterResumeFit(resumeForAnalysis, formData.targetJobDescription, currentUser);
       const updatedFormData = { ...formData, masterResumeFit: JSON.stringify(result) };
       setFormData(updatedFormData);
-      onSave(updatedFormData); // Save updated profile immediately
+      await onSave(updatedFormData); // Save updated profile immediately
       addNotification('Master resume fit analysis complete!', 'success');
-      logService.log(currentUser, LogActionType.JOB_ANALYSIS, `Master resume fit analysis completed with score ${result.score}.`, 'info');
+      logService.log(currentUser, LogActionType.RESUME_ATS_EVALUATED, `Master resume fit analysis completed with score ${result.score}.`, 'info');
     } catch (e: any) {
       if (e.message === 'RATE_LIMIT_EXCEEDED') {
         addNotification("You've reached the free tier limit. Please wait a minute before trying again.", 'info');
@@ -241,7 +302,6 @@ const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave, currentUser 
   };
 
   const triggerImport = () => {
-    // FIX: Use fileInputRef.current
     fileInputRef.current?.click();
   };
 
@@ -335,7 +395,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave, currentUser 
                     disabled={!isEditing} 
                     value={formData.email || ''} 
                     onChange={e => handleEmailChange(e.target.value)} 
-                    onBlur={() => handleEmailChange(formData.email || '')} // Re-validate on blur
+                    onBlur={() => handleEmailChange(formData.email || '', true)} // Re-validate on blur
                     className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl p-3 text-gray-900 dark:text-white font-medium focus:ring-2 focus:ring-purple-500 outline-none transition-all" 
                     placeholder="john@example.com" 
                     aria-invalid={emailError ? "true" : "false"}
@@ -351,7 +411,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave, currentUser 
                       onChange={handlePhoneChange}
                       disabled={!isEditing}
                       error={phoneError}
-                      onBlur={() => handlePhoneChange(formData.phone || '', isValidPhoneNumber(formData.phone || ''))}
+                      onBlur={(e) => handlePhoneChange(e.currentTarget.value || '', isValidPhoneNumber(e.currentTarget.value || ''))}
                     />
                  </div>
                  <div className="group">
@@ -399,7 +459,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave, currentUser 
                  </button>
                  <input 
                    type="file" 
-                   ref={fileInputRef} 
+                   ref={fileInputRef as React.RefObject<HTMLInputElement>} // Explicitly cast to HTMLInputElement
                    onChange={handleFileChange} 
                    accept=".json" 
                    className="hidden" 
@@ -415,27 +475,38 @@ const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave, currentUser 
 
         {/* Right Column: Master Resume & Target Role Fit */}
         <div className="lg:col-span-2 flex flex-col h-full min-h-[600px] space-y-8">
-           <div className="bg-white dark:bg-slate-800 rounded-[2rem] shadow-sm border border-gray-100 dark:border-slate-700 flex-1 flex flex-col overflow-hidden transition-colors">
+           <div className="bg-white dark:bg-slate-800 rounded-[2rem] shadow-sm border border-gray-100 dark:border-slate-700 flex-1 flex-col overflow-hidden transition-colors">
               <div className="p-6 border-b border-gray-100 dark:border-slate-700 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white dark:bg-slate-800 z-10">
                  <div>
                     <h3 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
                        <FileText size={20} className="text-emerald-500"/> Master Resume
                     </h3>
                     <p className="text-gray-500 dark:text-slate-400 text-sm mt-1">
-                      Paste your full resume text here. We use this to generate everything else.
+                      Paste your full resume text here. This is the single source of truth for all AI features.
                     </p>
                  </div>
-                 {isEditing && (
+                 <div className="flex gap-2">
+                  {isEditing && (
                     <button 
                       onClick={handleParseResume} 
-                      disabled={parsing || isOffline} // Disable if offline
+                      disabled={parsing || isOffline} 
                       className="text-xs bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-200 dark:hover:bg-emerald-900/50 px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       aria-label={parsing ? "Analyzing resume" : "Auto-extract information from resume"}
                       title={isOffline ? "Requires internet connection" : (parsing ? "Analyzing resume..." : "Auto-extract information from resume")}
                     >
                       {parsing ? <span className="animate-pulse">Analyzing...</span> : <><Sparkles size={14}/> Auto-Extract Info</>}
                     </button>
-                 )}
+                  )}
+                  <button 
+                    onClick={() => setView('RESUME_BUILDER')}
+                    disabled={!formData.structuredResume}
+                    className="text-xs bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-200 dark:hover:bg-indigo-900/50 px-4 py-2 rounded-xl font-bold flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={!formData.structuredResume ? "Generate structured resume first (AI Pro feature)" : "Open resume builder"}
+                    aria-label="Open Resume Builder"
+                  >
+                    Open Resume Builder <ArrowRight size={14}/>
+                  </button>
+                 </div>
               </div>
               
               <div className="flex-1 p-6 bg-gray-50/50 dark:bg-slate-900/50 relative">
@@ -456,6 +527,24 @@ const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave, currentUser 
                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                      <p className="text-gray-300 dark:text-slate-600 font-bold text-2xl uppercase tracking-widest">No Resume Data</p>
                    </div>
+                 )}
+              </div>
+              <div className="p-6 border-t border-gray-100 dark:border-slate-700 flex justify-end bg-white dark:bg-slate-800 z-10">
+                 {isEditing && (
+                   <button 
+                     onClick={handleGenerateStructuredResume}
+                     disabled={generatingStructuredResume || isOffline || !formData.resumeContent || subscriptionTier === SubscriptionTier.FREE}
+                     className={`px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm
+                       ${(generatingStructuredResume || isOffline || !formData.resumeContent || subscriptionTier === SubscriptionTier.FREE) 
+                         ? 'bg-gray-200 dark:bg-slate-700 text-gray-500 dark:text-slate-400' 
+                         : 'bg-fuchsia-100 dark:bg-fuchsia-900/30 text-fuchsia-700 dark:text-fuchsia-400 hover:bg-fuchsia-200 dark:hover:bg-fuchsia-900/50'
+                       }`}
+                       aria-label={generatingStructuredResume ? "Generating structured resume..." : "Generate Structured Resume for Builder"}
+                       title={isOffline ? "Requires internet connection" : !formData.resumeContent ? "Paste resume content first" : (subscriptionTier === SubscriptionTier.FREE ? "AI Pro feature. Upgrade to unlock." : "Generate structured data for the resume builder")}
+                   >
+                     {generatingStructuredResume ? <RefreshCcw size={14} className="animate-spin"/> : <Sparkles size={14}/>} 
+                     {generatingStructuredResume ? "Generating..." : "Generate Structured Resume"}
+                   </button>
                  )}
               </div>
            </div>
@@ -491,19 +580,19 @@ const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave, currentUser 
 
               <button
                 onClick={handleAnalyzeMasterResumeFit}
-                disabled={!isEditing || !formData.resumeContent || !formData.targetJobDescription || analyzingFit || profile.subscriptionTier === SubscriptionTier.FREE || isOffline}
+                disabled={!isEditing || (!formData.resumeContent && !formData.structuredResume) || !formData.targetJobDescription || analyzingFit || subscriptionTier === SubscriptionTier.FREE || isOffline}
                 className={`w-full py-3 rounded-xl font-bold transition-colors flex items-center justify-center gap-2
-                  ${(!isEditing || !formData.resumeContent || !formData.targetJobDescription || profile.subscriptionTier === SubscriptionTier.FREE || isOffline)
+                  ${(!isEditing || (!formData.resumeContent && !formData.structuredResume) || !formData.targetJobDescription || subscriptionTier === SubscriptionTier.FREE || isOffline)
                     ? 'bg-gray-200 dark:bg-slate-700 text-gray-500 dark:text-slate-400 cursor-not-allowed'
                     : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-md shadow-indigo-200 dark:shadow-none'
                   }`}
                 aria-label={analyzingFit ? "Analyzing..." : (masterResumeFitResult ? "Re-analyze Master Resume Fit" : "Analyze Master Resume Fit")}
-                title={isOffline ? "Requires internet connection" : !profile.resumeContent ? "Add your master resume in Profile to use this feature" : (!formData.targetJobDescription ? "Add target job description to use this feature" : (profile.subscriptionTier === SubscriptionTier.FREE ? "AI Pro feature. Upgrade to unlock." : ""))}
+                title={isOffline ? "Requires internet connection" : (!formData.resumeContent && !formData.structuredResume) ? "Add your master resume in Profile to use this feature" : (!formData.targetJobDescription ? "Add target job description to use this feature" : (subscriptionTier === SubscriptionTier.FREE ? "AI Pro feature. Upgrade to unlock." : ""))}
               >
                 {analyzingFit ? <RefreshCcw size={18} className="animate-spin" /> : <Sparkles size={18} />} 
                 {analyzingFit ? 'Analyzing...' : (masterResumeFitResult ? 'Re-Analyze Fit' : 'Analyze Master Resume Fit')}
               </button>
-              {profile.subscriptionTier === SubscriptionTier.FREE && (
+              {subscriptionTier === SubscriptionTier.FREE && (
                 <p className="text-sm text-red-500 dark:text-red-400 mt-3 text-center flex items-center justify-center gap-1" role="alert">
                   <Info size={16}/> AI Pro feature. Upgrade to unlock this analysis.
                 </p>

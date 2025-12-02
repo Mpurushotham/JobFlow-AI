@@ -1,9 +1,8 @@
 
-// FIX: Corrected import statement for React and its hooks.
 import React, { useState, useEffect, lazy, Suspense, useCallback } from 'react';
 
 // Import types
-import { Job, UserProfile, ViewState, SubscriptionTier, LogActionType } from './types';
+import { Job, UserProfile, ViewState, SubscriptionTier, LogActionType, ResumeData } from './types';
 
 // Import services
 import { storageService } from './services/storageService';
@@ -34,17 +33,16 @@ const JobsView = lazy(() => import('./views/JobsView'));
 const TrackerView = lazy(() => import('./views/TrackerView'));
 const InterviewsView = lazy(() => import('./views/InterviewsView'));
 const AnalyticsView = lazy(() => import('./views/AnalyticsView'));
-// FIX: Corrected lazy import syntax for WorkspaceView
-const WorkspaceView = lazy(() => import('./views/WorkspaceView'));
+const WorkspaceView = lazy(() => import('./views/WorkspaceView')); // FIX: Changed to default export
 const DonateView = lazy(() => import('./views/DonateView'));
 const AICoachView = lazy(() => import('./views/AICoachView'));
 const AuthView = lazy(() => import('./views/AuthView'));
 const AdminView = lazy(() => import('./views/AdminView'));
 const WelcomeView = lazy(() => import('./views/WelcomeView'));
-// FIX: Changed lazy import for OnlinePresenceView to correctly use the default export.
 const OnlinePresenceView = lazy(() => import('./views/OnlinePresenceView'));
 const PricingView = lazy(() => import('./views/PricingView')); // New: Pricing View
 const SecurityPrivacyView = lazy(() => import('./views/SecurityPrivacyView')); // New: Security & Privacy View
+const ResumeBuilderView = lazy(() => import('./views/ResumeBuilderView')); // NEW: Resume Builder View
 
 // --- Suspense Fallback Loader ---
 const ViewLoader = () => (
@@ -77,7 +75,18 @@ const ToastContainer = () => {
 
 
 // --- Main App Content (Protected) ---
-const AppContent: React.FC<{ onLogout: () => void; isAdmin: boolean; currentUser: string; globalWeather: { city: string; description: string; temperature: number } | null; refetchGlobalWeather: (force?: boolean) => void; subscriptionTier: SubscriptionTier | null; login: (username: string, isAdmin: boolean, subscriptionTier: SubscriptionTier) => void; view: ViewState; setView: (view: ViewState) => void; }> = ({ onLogout, isAdmin, currentUser, globalWeather, refetchGlobalWeather, subscriptionTier, login, view, setView }) => {
+const AppContent: React.FC<{ 
+  onLogout: () => void; 
+  isAdmin: boolean; 
+  currentUser: string; 
+  globalWeather: { city: string; description: string; temperature: number; country: string } | null; 
+  refetchGlobalWeather: (force?: boolean) => void; 
+  subscriptionTier: SubscriptionTier | null; 
+  login: (username: string, isAdmin: boolean, subscriptionTier: SubscriptionTier) => void; 
+  view: ViewState; 
+  setView: (view: ViewState) => void;
+  onSaveProfile: (p: UserProfile) => Promise<void>; // Add onSaveProfile
+}> = ({ onLogout, isAdmin, currentUser, globalWeather, refetchGlobalWeather, subscriptionTier, login, view, setView, onSaveProfile }) => {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [profile, setProfile] = useState<UserProfile>({ name: '', resumeContent: '', targetRoles: '' });
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -90,11 +99,13 @@ const AppContent: React.FC<{ onLogout: () => void; isAdmin: boolean; currentUser
         setJobs(await storageService.getJobs(currentUser));
         // Ensure profile also gets the subscriptionTier. It will be saved by authService/login.
         const userProfile = await storageService.getProfile(currentUser);
-        if (subscriptionTier && userProfile.subscriptionTier !== subscriptionTier) {
-          userProfile.subscriptionTier = subscriptionTier; // Sync profile tier with auth tier
-          await storageService.saveProfile(currentUser, userProfile);
+        if (subscriptionTier && userProfile) { // Check if userProfile exists
+          if (userProfile.subscriptionTier !== subscriptionTier) {
+            userProfile.subscriptionTier = subscriptionTier; // Sync profile tier with auth tier
+            await storageService.saveProfile(currentUser, userProfile);
+          }
         }
-        setProfile(userProfile);
+        setProfile(userProfile || { name: currentUser, resumeContent: '', targetRoles: '' }); // Default if profile not found
       }
     };
     loadUserData();
@@ -128,12 +139,7 @@ const AppContent: React.FC<{ onLogout: () => void; isAdmin: boolean; currentUser
     }
   };
 
-  const handleSaveProfile = async (newProfile: UserProfile) => {
-    await storageService.saveProfile(currentUser, newProfile);
-    setProfile(newProfile);
-    logService.log(currentUser, LogActionType.PROFILE_SAVE, `Profile for "${currentUser}" saved.`, 'info');
-  };
-
+  // onSaveProfile is passed down from MainApplicationWrapper
   const renderView = () => {
     switch (view) {
       case 'HOME':
@@ -141,11 +147,10 @@ const AppContent: React.FC<{ onLogout: () => void; isAdmin: boolean; currentUser
                   profile={profile} 
                   jobs={jobs} 
                   onNavigate={(v) => { setView(v); }}
-                  // FIX: Added the `onAddJob` prop.
                   onAddJob={() => setIsAddModalOpen(true)}
                 />;
       case 'PROFILE':
-        return <ProfileView profile={profile} onSave={handleSaveProfile} currentUser={currentUser} />;
+        return <ProfileView profile={profile} onSave={onSaveProfile} currentUser={currentUser} setView={setView} />;
       case 'JOB_SEARCH':
         return <JobSearchView onAddJobFound={handleUpdateJob} profile={profile} subscriptionTier={subscriptionTier} currentUser={currentUser} />;
       case 'JOBS':
@@ -179,7 +184,6 @@ const AppContent: React.FC<{ onLogout: () => void; isAdmin: boolean; currentUser
                     currentUser={currentUser}
                   />;
         }
-        // Fallback if no job is selected
         setView('JOBS'); 
         return null;
       case 'DONATE':
@@ -187,28 +191,25 @@ const AppContent: React.FC<{ onLogout: () => void; isAdmin: boolean; currentUser
       case 'AI_COACH':
         return <AICoachView profile={profile} subscriptionTier={subscriptionTier} currentUser={currentUser} />;
       case 'ONLINE_PRESENCE':
-        // FIX: Pass currentUser to OnlinePresenceView
         return <OnlinePresenceView profile={profile} subscriptionTier={subscriptionTier} currentUser={currentUser} />;
       case 'ADMIN':
-        // FIX: Pass currentUser to AdminView
         return <AdminView currentUserSubscriptionTier={subscriptionTier} currentUser={currentUser} />;
-      case 'PRICING': // New: Pricing View
+      case 'PRICING':
         return <PricingView 
                   currentTier={subscriptionTier} 
                   currentUser={currentUser} 
-                  onUpgrade={(newTier) => {
-                    // Manually update local auth context after simulated upgrade
-                    // This ensures the AppContent re-renders with the new tier
-                    authService.updateUserSubscription(currentUser!, newTier);
-                    // FIX: Pass all required arguments to login function.
+                  onUpgrade={async (newTier) => {
+                    await authService.updateUserSubscription(currentUser!, newTier);
                     login(currentUser!, isAdmin, newTier); // Update AuthContext state
                     logService.log(currentUser!, LogActionType.SUBSCRIPTION_CHANGE, `User upgraded to ${newTier} tier.`, 'info');
                     setView('HOME'); // Navigate home after upgrade
                   }} 
-                  onBackToHome={() => setView('HOME')} // Pass onBackToHome to PricingView
+                  onBackToHome={() => setView('HOME')}
                 />;
-      case 'SECURITY_PRIVACY': // New: Security & Privacy View
+      case 'SECURITY_PRIVACY':
         return <SecurityPrivacyView />;
+      case 'RESUME_BUILDER': // NEW: Resume Builder View
+        return <ResumeBuilderView profile={profile} onSaveProfile={onSaveProfile} currentUser={currentUser} subscriptionTier={subscriptionTier} />;
       default:
         return <HomeView 
                   profile={profile} 
@@ -233,7 +234,7 @@ const AppContent: React.FC<{ onLogout: () => void; isAdmin: boolean; currentUser
         isAdmin={isAdmin}
         globalWeather={globalWeather}
         refetchGlobalWeather={refetchGlobalWeather}
-        subscriptionTier={subscriptionTier} // Pass tier to Sidebar
+        subscriptionTier={subscriptionTier}
       />
 
       {/* Main Content */}
@@ -268,15 +269,16 @@ const AppContent: React.FC<{ onLogout: () => void; isAdmin: boolean; currentUser
 
 // --- Wrapper for the main application logic, ensures NotificationProvider is active ---
 const MainApplicationWrapper: React.FC = () => {
-  const {isAuthenticated, isAdmin, currentUser, subscriptionTier, isLoading: isAuthLoading, login, logout} = useAuth(); // Use AuthContext
-  const [authFlowState, setAuthFlowState] = useState<'welcome' | 'login' | 'signup' | 'forgot_credentials' | 'otp_verify'>('welcome'); // Added forgot_credentials, otp_verify
-  const [view, setView] = useState<ViewState>('HOME'); // Moved view state here
+  const {isAuthenticated, isAdmin, currentUser, subscriptionTier, isLoading: isAuthLoading, login, logout} = useAuth();
+  // FIX: Updated authFlowState type to include 'forgot_credentials' and 'otp_verify'
+  const [authFlowState, setAuthFlowState] = useState<'welcome' | 'login' | 'signup' | 'forgot_credentials' | 'otp_verify'>('welcome');
+  const [view, setView] = useState<ViewState>('HOME');
   const [apiKeyStatus, setApiKeyStatus] = useState<'loading' | 'present' | 'missing'>('loading');
-  const [globalWeather, setGlobalWeather] = useState<{ city: string; description: string; temperature: number } | null>(null);
-  // FIX: Add setIsFetchingLocation state
+  // FIX: Added 'country: string' to the initial state of globalWeather
+  const [globalWeather, setGlobalWeather] = useState<{ city: string; description: string; temperature: number; country: string } | null>(null);
   const [isFetchingLocation, setIsFetchingLocation] = useState(false); 
-  const { addNotification } = useNotifications(); // Access notifications here, now safely within provider.
-  const [isMigrating, setIsMigrating] = useState(true); // New state for migration
+  const { addNotification } = useNotifications();
+  const [isMigrating, setIsMigrating] = useState(true);
 
   // Log application initialization
   useEffect(() => {
@@ -322,7 +324,7 @@ const MainApplicationWrapper: React.FC = () => {
   useEffect(() => {
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#/', '');
-      const validViews: ViewState[] = ['HOME', 'PROFILE', 'JOB_SEARCH', 'JOBS', 'TRACKER', 'INTERVIEWS', 'ANALYTICS', 'WORKSPACE', 'DONATE', 'AI_COACH', 'ADMIN', 'ONLINE_PRESENCE', 'PRICING', 'SECURITY_PRIVACY'];
+      const validViews: ViewState[] = ['HOME', 'PROFILE', 'JOB_SEARCH', 'JOBS', 'TRACKER', 'INTERVIEWS', 'ANALYTICS', 'WORKSPACE', 'DONATE', 'AI_COACH', 'ADMIN', 'ONLINE_PRESENCE', 'PRICING', 'SECURITY_PRIVACY', 'RESUME_BUILDER'];
       
       const targetView = (hash.toUpperCase() as ViewState);
       const isTargetViewProtected = validViews.includes(targetView) && !['HOME', 'PRICING', 'SECURITY_PRIVACY'].includes(targetView);
@@ -334,18 +336,18 @@ const MainApplicationWrapper: React.FC = () => {
               setView('HOME'); // Default for authenticated users
           }
       } else { // Not authenticated
-          if (targetView === 'PRICING' || targetView === 'SECURITY_PRIVACY') { // Allow unauthenticated access to Pricing and Security/Privacy
+          if (targetView === 'PRICING' || targetView === 'SECURITY_PRIVACY' || targetView === 'HOME') { // Allow unauthenticated access to Pricing, Security/Privacy, and HOME (which renders WelcomeView)
               setView(targetView);
               setAuthFlowState('welcome'); // Ensure auth flow isn't blocking these views
-          } else if (targetView === 'HOME' || !validViews.includes(targetView)) {
-              setView('HOME'); // WelcomeView will render for HOME
-              setAuthFlowState('welcome');
           } else if (isTargetViewProtected) {
               // Trying to access protected view when unauthenticated
               setView('HOME'); // Redirect to HOME (which renders WelcomeView)
               setAuthFlowState('login'); // Prompt for login
               addNotification('Please log in to access this feature.', 'error');
               logService.log('guest', LogActionType.ERROR_OCCURRED, `Attempt to access protected view "${targetView}" without authentication.`, 'warn');
+          } else {
+            setView('HOME'); // Default to HOME/WelcomeView if hash is unknown and unauthenticated
+            setAuthFlowState('welcome');
           }
       }
     };
@@ -362,14 +364,10 @@ const MainApplicationWrapper: React.FC = () => {
   const fetchGlobalWeather = useCallback(async (force = false) => {
     if (!isAuthenticated && !force) return; // Only fetch if authenticated or forced
     if (!navigator.onLine) { // Explicitly check network status before trying to fetch
-        // Reduced verbosity here, logged silently or only on error
         logService.log(currentUser || 'guest', LogActionType.OFFLINE_EVENT, 'Cannot fetch weather data: offline.', 'warn');
         return;
     }
-    // FIX: Use setIsFetchingLocation
     setIsFetchingLocation(true);
-    // Removed overly verbose notification for fetching weather start
-    // logService.log(currentUser || 'guest', LogActionType.GEOLOCATION_FETCH, 'Attempted to fetch geolocation for weather.', 'debug');
 
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -380,44 +378,34 @@ const MainApplicationWrapper: React.FC = () => {
             // FIX: Access `data.country` directly as its type has been updated in geminiService.ts
             if (data?.city && data?.country) {
               setGlobalWeather(data);
-              // logService.log(currentUser || 'guest', LogActionType.GEOLOCATION_FETCH, `Weather fetched for ${data.city}, ${data.country}.`, 'info');
             } else {
-              // Only notify if it fails silently but keeps app running
-              // addNotification('Could not determine city/country from coordinates.', 'info'); 
               logService.log(currentUser || 'guest', LogActionType.GEOLOCATION_FETCH, 'Could not determine city/country from coordinates.', 'warn');
             }
           } catch (error: any) {
             if (error.message === 'RATE_LIMIT_EXCEEDED') {
-              // addNotification("Weather API limit reached. Please wait a minute before refreshing.", 'info');
               logService.log(currentUser || 'guest', LogActionType.ERROR_OCCURRED, `Weather API limit reached: ${error.message}`, 'warn');
             } else if (error.message === 'OFFLINE') {
                 // Already handled
             } else {
               console.error("Error fetching global weather data:", error);
-              // addNotification("Failed to fetch location. Please try again.", 'error');
               logService.log(currentUser || 'guest', LogActionType.ERROR_OCCURRED, `Failed to fetch weather data: ${error.message}`, 'error');
             }
           } finally {
-            // FIX: Use setIsFetchingLocation
             setIsFetchingLocation(false);
           }
         },
         (error) => {
           console.warn(`Geolocation error for global weather: ${error.message}`);
-          // addNotification(`Failed to get your location: ${error.message}`, 'error');
           logService.log(currentUser || 'guest', LogActionType.ERROR_OCCURRED, `Geolocation permission denied or failed: ${error.message}`, 'warn');
-          // FIX: Use setIsFetchingLocation
           setIsFetchingLocation(false);
         }
       );
     } else {
       console.warn("Geolocation not supported for global weather.");
-      // addNotification("Geolocation is not supported by your browser.", 'error');
       logService.log(currentUser || 'guest', LogActionType.ERROR_OCCURRED, 'Geolocation not supported by browser.', 'warn');
-      // FIX: Use setIsFetchingLocation
       setIsFetchingLocation(false);
     }
-  }, [isAuthenticated, addNotification, currentUser]); // Depend on isAuthenticated and addNotification
+  }, [isAuthenticated, addNotification, currentUser]);
 
   useEffect(() => {
     // Check for API Key
@@ -434,13 +422,21 @@ const MainApplicationWrapper: React.FC = () => {
       fetchGlobalWeather();
     }
 
-  }, [isAuthenticated, fetchGlobalWeather]); // Rerun when isAuthenticated changes to handle initial login weather fetch
+  }, [isAuthenticated, fetchGlobalWeather]);
+
+  const handleSaveProfile = useCallback(async (newProfile: UserProfile) => {
+    if (!currentUser) return; // Should not happen if authenticated
+    await storageService.saveProfile(currentUser, newProfile);
+    // Profile state is updated directly in AppContent based on this callback
+    logService.log(currentUser, LogActionType.PROFILE_SAVE, `Profile for "${currentUser}" saved.`, 'info');
+  }, [currentUser]);
+
 
   const handleLoginSuccess = (username: string, isAdminLogin: boolean, userSubscriptionTier: SubscriptionTier) => {
     login(username, isAdminLogin, userSubscriptionTier); // Update AuthContext state
     setAuthFlowState('welcome'); // Reset flow state on successful login
     setView('HOME'); // Ensure view is reset to home after login
-    fetchGlobalWeather(); // Fetch weather on login
+    fetchGlobalWeather(true); // Force fetch weather on login
     logService.log(username, LogActionType.USER_LOGIN, 'User successfully logged in.', 'info');
   };
 
@@ -490,8 +486,8 @@ const MainApplicationWrapper: React.FC = () => {
       case 'welcome':
         return <WelcomeView onNavigateToAuth={(mode) => {
           if (mode === 'pricing') {
-            window.location.hash = '#/pricing'; // Let hashchange listener handle it
-          } else if (mode === 'security_privacy') { // New mode for Security & Privacy
+            window.location.hash = '#/pricing';
+          } else if (mode === 'security_privacy') {
             window.location.hash = '#/security-privacy';
           } else {
             setAuthFlowState(mode);
@@ -500,14 +496,15 @@ const MainApplicationWrapper: React.FC = () => {
       case 'login':
       case 'signup':
       case 'forgot_credentials':
-      case 'otp_verify':
         return (
           <AuthView
-            initialMode={authFlowState === 'otp_verify' ? 'signup' : authFlowState as 'login' | 'signup'}
+            // FIX: Updated initialMode type to include 'forgot_credentials'
+            initialMode={authFlowState as 'login' | 'signup' | 'forgot_credentials'}
             onLoginSuccess={handleLoginSuccess}
             onBack={() => setAuthFlowState('welcome')}
             authFlowState={authFlowState}
-            setAuthFlowState={setAuthFlowState}
+            // FIX: Updated setAuthFlowState type to include 'otp_verify'
+            setAuthFlowState={setAuthFlowState as (state: 'welcome' | 'login' | 'signup' | 'forgot_credentials' | 'otp_verify') => void}
           />
         );
       default:
@@ -525,10 +522,11 @@ const MainApplicationWrapper: React.FC = () => {
           currentUser={currentUser} 
           globalWeather={globalWeather}
           refetchGlobalWeather={fetchGlobalWeather}
-          subscriptionTier={subscriptionTier} // Pass subscription tier to AppContent
-          login={login} // Pass login function to AppContent
-          view={view} // Pass view state
-          setView={setView} // Pass setView function
+          subscriptionTier={subscriptionTier}
+          login={login}
+          view={view}
+          setView={setView}
+          onSaveProfile={handleSaveProfile} // Pass onSaveProfile
         />
       ) : (
         renderUnauthenticatedContent()

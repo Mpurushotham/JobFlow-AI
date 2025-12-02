@@ -3,7 +3,8 @@
 
 import React, { useState, useRef } from 'react';
 import { Sparkles, FileHeart, CheckCircle, XCircle, RefreshCcw, Info, TrendingUp } from 'lucide-react';
-import { UserProfile, ResumeGrade, SubscriptionTier, EmailPurpose } from '../types';
+// FIX: Removed EmailPurpose as it's not used here.
+import { UserProfile, ResumeGrade, SubscriptionTier } from '../types';
 import { useNotifications } from '../context/NotificationContext';
 import { geminiService } from '../services/geminiService';
 import { LoadingOverlay } from './LoadingOverlay';

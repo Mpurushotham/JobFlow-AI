@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile, Job, User, SubscriptionTier, AppBackupData, AppActivityLogEntry, LogActionType } from '../types'; // Added AppBackupData, AppActivityLogEntry, LogActionType
 import { storageService } from '../services/storageService';
@@ -73,7 +75,7 @@ const ResetPasswordModal: React.FC<{ user: User; onClose: () => void; onSave: ()
                               id="new-pin"
                               value={newPin} 
                               onChange={handlePinChange} 
-                              onBlur={() => handlePinChange({target: {value: newPin}} as React.ChangeEvent<HTMLInputElement>)} // Validate on blur
+                              onBlur={(e) => handlePinChange(e as React.ChangeEvent<HTMLInputElement>)} // FIX: Pass event object to handlePinChange onBlur
                               maxLength={4} 
                               className="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-lg" 
                               aria-invalid={pinError ? "true" : "false"}
@@ -142,7 +144,7 @@ const LogDetailsModal: React.FC<{ log: AppActivityLogEntry; onClose: () => void;
                             {log.metadata.ipAddress && <div className="flex items-center gap-2"><Globe size={12} className="text-indigo-500"/> IP Address: {log.metadata.ipAddress}</div>}
                             {log.metadata.location && <div className="flex items-center gap-2"><MapPin size={12} className="text-indigo-500"/> URL: <span className="truncate">{log.metadata.location}</span></div>}
                             {log.metadata.userAgent && <div className="flex items-start gap-2"><Monitor size={12} className="text-indigo-500 mt-0.5"/> User Agent: <span className="break-all">{log.metadata.userAgent}</span></div>}
-                            {log.metadata.screenResolution && <div className="flex items-center gap-2"><Monitor size={12} className="text-indigo-500"/> Res: {log.metadata.screenResolution}</div>}
+                            {log.metadata.screenResolution && <div className="flex items-center gap-2"><Cookie size={12} className="text-indigo-500"/> Res: {log.metadata.screenResolution}</div>}
                             {log.metadata.cookies && <div className="flex items-start gap-2"><Cookie size={12} className="text-indigo-500 mt-0.5"/> Cookies: <span className="break-all">{log.metadata.cookies}</span></div>}
                         </div>
                     </div>

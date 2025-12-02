@@ -1,4 +1,6 @@
 
+
+
 import React, { useEffect, useState } from 'react';
 import { Sparkles, Target, FileText, MessageSquare, PieChart, Lock, ArrowRight, Bot, Sun, Cloud, CloudRain, CloudSnow, Wind, Globe, Briefcase, TrendingUp, Zap, Heart } from 'lucide-react';
 import { ThemeToggle } from '../components/ThemeToggle';
@@ -122,6 +124,7 @@ const WelcomeView: React.FC<WelcomeViewProps> = ({ onNavigateToAuth }) => {
                   <p className="mt-4 text-lg text-slate-300 max-w-2xl mx-auto">Everything you need to streamline your job search and stand out.</p>
                </div>
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                  {/* FIX: Added children prop content to FeatureCard instances */}
                   <FeatureCard icon={<Target size={24} />} title="AI Match Analysis">
                       Instantly see how your resume stacks up against a job description. Get a compatibility score and a detailed breakdown of matching and missing skills.
                   </FeatureCard>

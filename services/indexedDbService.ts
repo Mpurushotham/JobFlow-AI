@@ -1,4 +1,6 @@
 
+
+
 // services/indexedDbService.ts
 
 import { Job, UserProfile, RecentSearchQuery, User, AppActivityLogEntry } from '../types';

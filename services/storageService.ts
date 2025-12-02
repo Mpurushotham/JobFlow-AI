@@ -15,7 +15,7 @@ export const storageService = {
 
   async saveJob(username: string, job: Job): Promise<void> {
     if (!username) return;
-    // FIX: Add username to the job object before saving for IndexedDB indexing
+    // FIX: Add username to the job object before saving for IndexedDB indexing, and pass username to indexedDbService.saveJob
     const jobWithUsername = { ...job, username };
     return indexedDbService.saveJob(jobWithUsername, username);
   },
@@ -24,9 +24,10 @@ export const storageService = {
     return indexedDbService.deleteJob(id);
   },
 
-  async getProfile(username: string): Promise<UserProfile> {
-    if (!username) return { name: '', resumeContent: '', targetRoles: '' };
+  async getProfile(username: string): Promise<UserProfile | undefined> {
+    if (!username) return undefined; // Return undefined if no username
     const profile = await indexedDbService.getProfile(username);
+    // Return empty profile with username if not found, to ensure consistency
     return profile || { name: username, resumeContent: '', targetRoles: '' };
   },
 
@@ -43,7 +44,6 @@ export const storageService = {
   },
 
   async saveRecentSearch(query: string): Promise<void> {
-    // FIX: Await the promise from indexedDbService.getRecentSearches()
     let searches = await indexedDbService.getRecentSearches();
     // Remove existing entry if query is the same to update timestamp
     searches = searches.filter(s => s.query.toLowerCase() !== query.toLowerCase());
@@ -74,7 +74,7 @@ export const storageService = {
       await indexedDbService.deleteUser(username);
       await indexedDbService.deleteProfile(username); // Also delete profile data
       await indexedDbService.deleteAllJobsForUser(username); // And associated jobs
-      await indexedDbService.deleteAllActivityLogsForUser(username); // FIX: Delete associated activity logs
+      await indexedDbService.deleteAllActivityLogsForUser(username); // Delete associated activity logs
   },
 
   // === Admin functions ===
@@ -103,7 +103,6 @@ export const storageService = {
     const profile = await indexedDbService.getProfile(username);
     const jobs = await indexedDbService.getJobsForUser(username);
     const recentSearches = await indexedDbService.getRecentSearches(); // Global recent searches
-    // FIX: Call getLogEntries from indexedDbService
     const activityLogs = (await indexedDbService.getLogEntries()).filter(log => log.username === username || log.username === 'system' || log.username === 'guest'); // Only export logs relevant to user/system/guest
 
     if (!user || !profile) return null; // Must have at least user and profile
@@ -122,7 +121,6 @@ export const storageService = {
     const profiles = await indexedDbService.getAllProfiles();
     const allJobsMap = await indexedDbService.getAllJobs();
     const recentSearches = await indexedDbService.getRecentSearches();
-    // FIX: Call getLogEntries from indexedDbService
     const activityLogs = await indexedDbService.getLogEntries();
 
     const allJobs: Record<string, Job[]> = {};
@@ -163,7 +161,8 @@ export const storageService = {
     await indexedDbService.saveProfile(profileToImport);
     await indexedDbService.deleteAllJobsForUser(currentUsername); // Clear old jobs
     for (const job of jobsToImport) {
-        await indexedDbService.saveJob(job, currentUsername);
+        // FIX: Pass username to indexedDbService.saveJob
+        await indexedDbService.saveJob(job, currentUsername); // Use saveJob which adds username internally
     }
     
     // Recent searches are global, replace them
@@ -173,10 +172,8 @@ export const storageService = {
     }
 
     // Clear and import activity logs
-    // FIX: Call clearActivityLogs from indexedDbService
     await indexedDbService.clearActivityLogs();
     for (const logEntry of data.activityLogs) {
-        // FIX: Call saveLogEntry from indexedDbService
         await indexedDbService.saveLogEntry(logEntry);
     }
   },
@@ -189,10 +186,6 @@ export const storageService = {
     await indexedDbService.clearAllData(); // Clear everything first
     
     // Re-add the admin user if it exists and is not in the backup, otherwise use the backup's admin.
-    const currentAdminSession = JSON.parse(sessionStorage.getItem('jobflow_session') || '{}');
-    const adminUserExistsInBackup = data.users.some(u => u.username === 'admin');
-
-    // Only re-add if admin is logged in and not covered by backup.
     // For this context, the admin is a special case to ensure the system is not locked out.
     // However, `clearAllData` clears the admin user too.
     // The safest approach is to ensure a backup will cover the admin, or the user manually manages it.
@@ -203,7 +196,6 @@ export const storageService = {
       profiles: Object.values(data.profiles), // IndexedDB profile store takes UserProfile objects directly
       jobs: data.jobs ? Object.values(data.jobs).flat() : [], // Flatten jobs from map
       recentSearches: data.recentSearches,
-      // FIX: Add activityLogs to the populateAllData call
       activityLogs: data.activityLogs, 
     });
   }

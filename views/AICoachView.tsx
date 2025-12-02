@@ -6,7 +6,8 @@ import { Bot, FileHeart, Mic, BrainCircuit, TrendingUp } from 'lucide-react';
 import { UserProfile, SubscriptionTier } from '../types';
 
 // Import refactored components
-import AIChat from '../components/AIChat';
+// FIX: Changed to named import since AIChat is not a default export.
+import { AIChat } from '../components/AIChat';
 import { ResumeGrader } from '../components/ResumeGrader';
 // FIX: Changed to named import since MockInterview is not a default export.
 import { MockInterview } from '../components/MockInterview';
@@ -60,7 +61,11 @@ const AICoachView: React.FC<AICoachViewProps> = ({ profile, subscriptionTier, cu
         </div>
         
         <div className="flex-1 bg-gray-50/50 dark:bg-slate-900/50 overflow-hidden relative">
-           <AIChat profile={profile} subscriptionTier={subscriptionTier} />
+           {/* AIChat is always mounted but its content depends on activeTab */}
+           <div className={activeTab === 'CHAT' ? '' : 'hidden'}>
+             <AIChat profile={profile} subscriptionTier={subscriptionTier} currentUser={currentUser} />
+           </div>
+           
            {activeTab === 'GRADER' && <ResumeGrader profile={profile} subscriptionTier={subscriptionTier} currentUser={currentUser} />}
            {activeTab === 'INTERVIEW' && <MockInterview profile={profile} subscriptionTier={subscriptionTier} currentUser={currentUser} />}
            {/* FIX: Added subscriptionTier prop to SkillDevelopment component */}

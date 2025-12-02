@@ -1,5 +1,6 @@
 
-import { Job } from '../types';
+import { Job, ResumeData } from '../types';
+import { convertResumeDataToMarkdown } from './resumeMarkdown'; // Import helper
 
 export const downloadCSV = (data: Job[]) => {
   const headers = [
@@ -36,7 +37,14 @@ export const downloadCSV = (data: Job[]) => {
   link.click();
 };
 
-export const handlePrintPDF = (content: string, title: string) => {
+export const handlePrintPDF = (content: string | ResumeData, title: string) => {
+  let finalContentMarkdown: string;
+  if (typeof content === 'string') {
+    finalContentMarkdown = content;
+  } else {
+    finalContentMarkdown = convertResumeDataToMarkdown(content);
+  }
+
   const printWindow = window.open('', '_blank');
   if (printWindow) {
     // Process markdown within a part (for the two-column layout)
@@ -47,7 +55,7 @@ export const handlePrintPDF = (content: string, title: string) => {
     };
 
     // 1. Handle the custom two-column layout first
-    let htmlContent = content.replace(/^(?!#|\*|-|\s)(.*)\s*\|\s*(.*)$/gm, (match, left, right) => {
+    let htmlContent = finalContentMarkdown.replace(/^(?!#|\*|-|\s)(.*)\s*\|\s*(.*)$/gm, (match, left, right) => {
       const processedLeft = processMarkdownPart(left);
       const processedRight = processMarkdownPart(right);
       return `<div class="line-item"><span class="left">${processedLeft}</span><span class="right">${processedRight}</span></div>`;
@@ -178,4 +186,60 @@ export const handlePrintPDF = (content: string, title: string) => {
     `);
     printWindow.document.close();
   }
+};
+
+export const downloadDocx = (content: string, title: string) => {
+  // This is a simplified DOCX export. Browsers can't generate true .docx files.
+  // This method creates an HTML file with a .doc extension.
+  // It will open in Word but might not retain complex formatting.
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="UTF-8">
+        <title>${title}</title>
+        <style>
+          body { font-family: 'Times New Roman', serif; font-size: 12pt; line-height: 1.5; margin: 1in; }
+          h1 { font-size: 24pt; text-align: center; margin-bottom: 12pt; }
+          h2 { font-size: 14pt; text-align: center; border-bottom: 1px solid black; padding-bottom: 4pt; margin-top: 20pt; margin-bottom: 10pt; }
+          p { margin-bottom: 6pt; }
+          ul { margin-left: 20pt; margin-bottom: 6pt; }
+          li { margin-bottom: 3pt; }
+          strong { font-weight: bold; }
+          em { font-style: italic; }
+          .line-item { display: flex; justify-content: space-between; margin-bottom: 2pt; }
+          .line-item .left { text-align: left; }
+          .line-item .right { text-align: right; white-space: nowrap; }
+          a { color: #0000FF; text-decoration: underline; }
+        </style>
+      </head>
+      <body>
+        <div style="max-width: 6.5in; margin: 0 auto;">
+          ${content
+            .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+            .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+            .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+            .replace(/^\* (.*$)/gim, '<li>$1</li>')
+            .replace(/^- (.*$)/gim, '<li>$1</li>')
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            .replace(/(<li>.*<\/li>)/gims, '<ul>$1</ul>')
+            .replace(/<\/ul>\s*<ul>/g, '')
+            .replace(/^(?!#|\*|-|\s)(.*)\s*\|\s*(.*)$/gm, '<div class="line-item"><span class="left">$1</span><span class="right">$2</span></div>')
+            .replace(/\n/gim, '<br />')
+          }
+        </div>
+      </body>
+    </html>
+  `;
+
+  const blob = new Blob([htmlContent], { type: 'application/msword;charset=utf-8;' });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `${title}.doc`; // Use .doc extension
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  // FIX: Revoked the object URL created for link.href
+  URL.revokeObjectURL(link.href);
 };

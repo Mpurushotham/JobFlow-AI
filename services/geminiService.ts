@@ -1,8 +1,9 @@
 
+
 import { GoogleGenAI, Type, GenerateContentResponse } from '@google/genai';
-import { InterviewQA, SearchResult, ParsedResume, SearchFilters, UserProfile, ResumeGrade, MasterResumeFitResult, LearningPath, EmailPurpose, LogActionType } from '../types';
+// FIX: Import missing types
+import { InterviewQA, SearchResult, ParsedResume, SearchFilters, UserProfile, ResumeGrade, MasterResumeFitResult, LearningPath, EmailPurpose, LogActionType, ResumeData, ResumeATSScore, ExperienceItem, EducationItem, SkillItem, ProjectItem, CertificationItem, AwardItem } from '../types';
 import { logService } from './logService'; // Import new logService
-import { useAuth } from '../context/AuthContext'; // Import useAuth for currentUser
 
 // Helper to get client using the environment variables
 const getClient = () => {
@@ -78,7 +79,7 @@ export const geminiService = {
           You are a highly efficient job search engine assistant.
           Find ${numJobsToFetch} active, recent job postings.
           
-          Target Sites: Search specifically on LinkedIn, Indeed, Glassdoor, Google Careers, We Work Remotely, Stack Overflow Jobs, and other legitimate job boards. Avoid aggregators if possible.
+          Target Sites: Search specifically on LinkedIn, Indeed, Glassdoor, Google Careers, We Work Remotely, Stack Overflow Jobs, and other legitimate job boards.
           
           Strictly adhere to ALL the following criteria:
           - Keywords: "${filters.query}"
@@ -109,7 +110,7 @@ export const geminiService = {
           - location (string): City, State, or Country.
           - url (string): Direct URL to the job posting, or "N/A".
           - summary (string): A concise 1-2 sentence description of the role.
-          - postedDate (string): The date posted (e.g., "2 days ago", "Oct 12, 2023"). If unknown, use "Recently".
+          - postedDate (string): The date posted (e.g., "1 day ago", "Oct 12, 2023"). If unknown, use "Recently".
           - source (string): The platform name (e.g., "LinkedIn", "Indeed", "Company Site").
 
           Example output format:
@@ -141,7 +142,7 @@ export const geminiService = {
               
               Use the Google Search tool to find actual, currently open job postings.
               
-              CRITICAL: For each job, provide a direct, valid URL.
+              CRITICAL: For each job, provide a direct, valid URL. If a direct link is absolutely not found after a thorough search, use "N/A" for the URL.
 
               AFTER searching, format the results as a strict JSON array inside a markdown code block.
               Each JSON object for a job MUST have these exact keys and types:
@@ -181,7 +182,8 @@ export const geminiService = {
   /**
    * Analyzes the job description against the resume to provide a match score and insights.
    */
-  analyzeJob: async (resume: string, jobTitle: string, jobSummary: string, currentUser: string) => { // Modified to take jobTitle and jobSummary
+  // FIX: Reordered parameters to place required 'currentUser' last, and corrected type of 'resume'
+  analyzeJob: async (resumeContent: string, jobTitle: string, jobSummary: string, currentUser: string): Promise<MasterResumeFitResult> => { 
     return handleApiCall(async () => {
         const ai = getClient();
         
@@ -191,7 +193,7 @@ export const geminiService = {
 
           Candidate's Master Resume (summarized for context):
           ---
-          ${resume.slice(0, 8000)}
+          ${resumeContent.slice(0, 8000)}
           ---
 
           Target Job Details:
@@ -301,7 +303,7 @@ export const geminiService = {
             - type: "Course" | "Project" | "Concept" | "Tool" (Categorize the resource clearly).
             - title: string (A descriptive name for the resource/project/concept/tool, e.g., "Coursera: Advanced Python", "Build a REST API with Node.js", "Understanding Data Structures").
             - description: string (A brief, 1-2 sentence explanation of what the resource offers or why it's useful for learning the skill).
-            - link?: string (Optional: a direct, valid URL to the course, project repository, documentation, or relevant article. Only include if a specific, high-quality, and publicly accessible link is available. If no specific link, omit the property. Do NOT generate placeholder links).
+            - link?: string (Optional: a direct, valid URL to the course, project repository, documentation, or relevant article. Only include if a specific, high-quality, and publicly accessible link is available. Do NOT generate placeholder links).
         
         Example JSON format:
         \`\`\`json
@@ -375,19 +377,256 @@ export const geminiService = {
   },
 
   /**
+   * Generates a structured resume from raw text for the builder.
+   */
+  generateStructuredResume: async (masterResumeContent: string, profile: UserProfile, currentUser: string): Promise<ResumeData> => {
+    return handleApiCall(async () => {
+      const ai = getClient();
+
+      const prompt = `
+        You are an expert resume parser and formatter. Your task is to take raw resume text and convert it into a highly structured JSON format, suitable for an Applicant Tracking System (ATS) friendly builder.
+
+        Raw Resume Text:
+        ---
+        ${masterResumeContent.slice(0, 10000)}
+        ---
+
+        User's Profile Info (for cross-referencing contact details if missing in raw text):
+        Name: ${profile.name || ''}
+        Email: ${profile.email || ''}
+        Phone: ${profile.phone || ''}
+        LinkedIn: ${profile.linkedin || ''}
+        GitHub: ${profile.github || ''}
+        Website: ${profile.website || ''}
+        Location: ${profile.location || ''}
+        
+        CRITICAL INSTRUCTIONS:
+        1.  Extract information into the exact JSON structure provided below.
+        2.  If a field is not found in the raw resume text OR in the provided profile info, omit that key entirely from the JSON. Do NOT use "N/A", "null", or empty strings for missing fields unless specified.
+        3.  Ensure dates are parsed clearly (e.g., "Month Year - Month Year" or "Month Year - Present").
+        4.  For bullet points in experience and projects, extract them as separate strings within the 'bulletPoints' array.
+        5.  The 'order' field in sections should reflect a logical resume flow (e.g., Contact/Summary first, then Experience, Education, etc.).
+        6.  'type' in sections should be 'text', 'experience', 'education', 'skills', 'projects', 'certifications', 'awards'.
+        7.  Assign a unique 'id' (e.g., UUID or timestamp-based) to each ResumeSection, ExperienceItem, EducationItem, etc., for tracking in the builder.
+
+        Return a JSON object with the following strict structure:
+        \`\`\`json
+        {
+          "contact": {
+            "name": "string",
+            "email": "string",
+            "phone": "string",
+            "linkedin": "string (optional)",
+            "github": "string (optional)",
+            "website": "string (optional)",
+            "portfolio": "string (optional)",
+            "location": "string (optional)"
+          },
+          "summary": "string (1-3 sentences, candidate's professional summary)",
+          "sections": [
+            {
+              "id": "string (unique ID)",
+              "title": "string (e.g., Work Experience, Education, Skills, Projects, Certifications, Awards, Additional Information)",
+              "type": "string ('text' | 'experience' | 'education' | 'skills' | 'projects' | 'certifications' | 'awards')",
+              "order": "number (e.g., 10, 20, 30 for sorting)",
+              "content": "string | array of objects (structure depends on type)"
+            }
+          ]
+        }
+        \`\`\`
+
+        Specifically for 'content' within sections:
+        -   If type is 'text': content is a string.
+        -   If type is 'experience': content is an array of ExperienceItem objects:
+            \`\`\`json
+            [{
+              "id": "string (unique ID)",
+              "company": "string",
+              "title": "string",
+              "location": "string",
+              "dates": "string",
+              "bulletPoints": ["string"]
+            }]
+            \`\`\`
+        -   If type is 'education': content is an array of EducationItem objects:
+            \`\`\`json
+            [{
+              "id": "string (unique ID)",
+              "degree": "string",
+              "institution": "string",
+              "location": "string",
+              "dates": "string",
+              "details": "string (optional)"
+            }]
+            \`\`\`
+        -   If type is 'skills': content is an array of SkillItem objects:
+            \`\`\`json
+            [{
+              "id": "string (unique ID)",
+              "category": "string (e.g., Programming Languages, Cloud Platforms)",
+              "skills": ["string"]
+            }]
+            \`\`\`
+        -   If type is 'projects': content is an array of ProjectItem objects:
+            \`\`\`json
+            [{
+                "id": "string (unique ID)",
+              "name": "string",
+              "dates": "string",
+              "description": "string (brief summary)",
+              "link": "string (optional)",
+              "bulletPoints": ["string (optional)"]
+            }]
+            \`\`\`
+        -   If type is 'certifications': content is an array of CertificationItem objects:
+            \`\`\`json
+            [{
+              "id": "string (unique ID)",
+              "name": "string",
+              "issuer": "string",
+              "date": "string",
+              "link": "string (optional)"
+            }]
+            \`\`\`
+        -   If type is 'awards': content is an array of AwardItem objects:
+            \`\`\`json
+            [{
+              "id": "string (unique ID)",
+              "name": "string",
+              "issuer": "string",
+              "date": "string",
+              "description": "string (optional)"
+            }]
+            \`\`\`
+        
+        Ensure the final JSON is perfectly valid and directly parsable. DO NOT include any conversational text outside the JSON block.
+      `;
+
+      const response = await ai.models.generateContent({
+        model: MODEL_FAST,
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          // No responseSchema here because the structure is too complex and dynamic.
+          // We rely on the prompt to enforce it.
+        }
+      });
+      return JSON.parse(response.text || '{}');
+    }, LogActionType.RESUME_BUILDER_AI_AUTOFILL, `AI auto-filled structured resume`, currentUser);
+  },
+
+  /**
+   * Evaluates the ATS compatibility and effectiveness of a structured resume.
+   */
+  evaluateATSScore: async (resumeData: ResumeData, jobDescription?: string, currentUser?: string): Promise<ResumeATSScore> => {
+    return handleApiCall(async () => {
+      const ai = getClient();
+
+      const resumeMarkdown = geminiService.convertResumeDataToMarkdown(resumeData);
+
+      const prompt = `
+        As an expert career coach and Applicant Tracking System (ATS) specialist, analyze and grade the following resume content.
+        ${jobDescription ? `Compare it against this specific job description:\n---\n${jobDescription.slice(0, 5000)}\n---` : 'Provide a general ATS health check.'}
+        
+        Resume Content (derived from structured data):
+        ---
+        ${resumeMarkdown.slice(0, 10000)}
+        ---
+        
+        Provide a comprehensive analysis in a strict JSON format. Evaluate the following five key areas, providing a 'pass' (boolean, true if meets standard, false if needs significant improvement) and 'feedback' (string, 1-2 concise sentences for actionable advice) for each:
+        1.  atsFriendly: Does the format (e.g., single-column, no tables/graphics, standard fonts) make it easily parsable by an Applicant Tracking System? Penalize for complex layouts.
+        2.  actionVerbs: Does the resume consistently use strong, dynamic action verbs at the start of bullet points, avoiding passive language (e.g., "responsible for")?
+        3.  quantifiableMetrics: Are achievements backed by specific numbers, percentages, or concrete data to clearly demonstrate impact and results?
+        4.  keywords: If a job description was provided, how well are relevant keywords integrated? If not, how well does it use general industry keywords?
+        5.  clarity: Is the language clear, concise, and professional, free of excessive jargon? Is the candidate's value proposition and career narrative easy to understand?
+
+        Finally, provide an overall 'score' (number, 0-100) and a brief 'summary' (string, 2-3 sentences) of the resume's greatest strengths and most critical areas for improvement.
+
+        Ensure the JSON is perfectly valid and directly parsable. DO NOT include any conversational text outside the JSON.
+      `;
+
+      const schema = {
+        type: Type.OBJECT,
+        properties: {
+          score: { type: Type.NUMBER, description: 'Overall ATS score (0-100).' },
+          summary: { type: Type.STRING, description: '2-3 sentence summary of strengths and areas for improvement.' },
+          atsFriendly: { 
+            type: Type.OBJECT, 
+            properties: { 
+              pass: { type: Type.BOOLEAN, description: 'True if ATS friendly, false otherwise.' }, 
+              feedback: { type: Type.STRING, description: 'Actionable feedback for ATS compatibility.' } 
+            },
+            required: ['pass', 'feedback']
+          },
+          actionVerbs: { 
+            type: Type.OBJECT, 
+            properties: { 
+              pass: { type: Type.BOOLEAN, description: 'True if strong action verbs are used, false otherwise.' }, 
+              feedback: { type: Type.STRING, description: 'Actionable feedback for action verb usage.' } 
+            },
+            required: ['pass', 'feedback']
+          },
+          quantifiableMetrics: { 
+            type: Type.OBJECT, 
+            properties: { 
+              pass: { type: Type.BOOLEAN, description: 'True if achievements are quantified, false otherwise.' }, 
+              feedback: { type: Type.STRING, description: 'Actionable feedback for quantifiable metrics.' } 
+            },
+            required: ['pass', 'feedback']
+          },
+          keywords: { 
+            type: Type.OBJECT, 
+            properties: { 
+              pass: { type: Type.BOOLEAN, description: 'True if keywords are well integrated, false otherwise.' }, 
+              feedback: { type: Type.STRING, description: 'Actionable feedback for keyword optimization.' } 
+            },
+            required: ['pass', 'feedback']
+          },
+          clarity: { 
+            type: Type.OBJECT, 
+            properties: { 
+              pass: { type: Type.BOOLEAN, description: 'True if language is clear and concise, false otherwise.' }, 
+              feedback: { type: Type.STRING, description: 'Actionable feedback for clarity and conciseness.' } 
+            },
+            required: ['pass', 'feedback']
+          },
+        },
+        required: ['score', 'summary', 'atsFriendly', 'actionVerbs', 'quantifiableMetrics', 'keywords', 'clarity']
+      };
+
+      const response = await ai.models.generateContent({
+        model: MODEL_FAST,
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: schema
+        }
+      });
+
+      return JSON.parse(response.text || '{}');
+    }, LogActionType.RESUME_ATS_EVALUATED, `ATS score evaluation for resume`, currentUser || 'guest');
+  },
+
+
+  /**
    * Rewrites the user's resume for a specific job.
    */
   tailorResume: async (resume: string, jobDescription: string, profile: UserProfile, currentUser: string) => {
     return handleApiCall(async () => {
         const ai = getClient();
         
+        // Use structured resume if available, otherwise raw content
+        const resumeContentForAI = profile.structuredResume 
+            ? geminiService.convertResumeDataToMarkdown(profile.structuredResume)
+            : profile.resumeContent;
+
         const prompt = `
           Act as an expert resume writer and career coach, specializing in creating ATS-optimized documents.
-          Your task is to rewrite the provided "Original Resume" to perfectly match the "Target Job Description".
+          Your task is to rewrite the provided "Original Resume Content" to perfectly match the "Target Job Description".
 
-          Original Resume:
+          Original Resume Content:
           ---
-          ${resume.slice(0, 8000)}
+          ${resumeContentForAI.slice(0, 8000)}
           ---
 
           Target Job Description:
@@ -395,7 +634,7 @@ export const geminiService = {
           ${jobDescription.slice(0, 8000)}
           ---
 
-          User Profile (for Contact Info - ONLY include if value is provided and valid, otherwise omit the field completely):
+          User Profile Contact Info (ONLY include if value is provided and valid, otherwise omit the field completely):
           Name: ${profile.name || '[Candidate Name]'}
           Email: ${profile.email ? profile.email : ''}
           Phone: ${profile.phone ? profile.phone : ''}
@@ -403,6 +642,7 @@ export const geminiService = {
           GitHub: ${profile.github ? profile.github : ''}
           Website: ${profile.website ? profile.website : ''}
           Portfolio: ${profile.portfolio ? profile.portfolio : ''}
+          Location: ${profile.location ? profile.location : ''}
 
           **CRITICAL ATS-OPTIMIZATION RULES:**
 
@@ -415,7 +655,7 @@ export const geminiService = {
               -   Use a clean, professional, single-column layout. **Absolutely DO NOT use tables, multi-column formats, text boxes, or embedded images/icons.** This is crucial for ATS parsing.
               -   **HEADER**: The resume must start with a clear, concise header for contact information.
                   -   The very first line must be the candidate's full name as a Markdown H1 (e.g., # JANE DOE).
-                  -   Immediately following, on a single line, include all *provided* and *valid* contact information separated by pipes (e.g., "Email | Phone | LinkedIn URL | GitHub URL | Portfolio Website"). Omit any field if data is not provided.
+                  -   Immediately following, on a single line, include all *provided* and *valid* contact information separated by pipes (e.g., "Email | Phone | LinkedIn URL | GitHub URL | Portfolio Website | Location"). Omit any field if data is not provided.
               -   **STANDARD SECTION HEADERS**: Use these exact Markdown H2 headers for primary sections. Omit any section if no relevant content can be extracted from the original resume or profile for that section.
                   ## SUMMARY
                   ## SKILLS
@@ -454,26 +694,34 @@ export const geminiService = {
   /**
    * Generates a cover letter.
    */
-  generateCoverLetter: async (resume: string, jobDescription: string, company: string, userPhone?: string, userEmail?: string, currentUser?: string) => {
+  generateCoverLetter: async (resume: string, jobDescription: string, company: string, userPhone?: string, userEmail?: string, currentUser?: string, profile?: UserProfile) => {
     return handleApiCall(async () => {
         const ai = getClient();
-        const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
         
-        // Extract applicant name from the beginning of the resume content (assuming H1 format)
-        const applicantNameMatch = resume.match(/^#\s*(.+?)\n/);
-        const applicantName = applicantNameMatch ? applicantNameMatch[1].trim() : 'Valued Applicant';
+        // Use structured resume if available, otherwise raw content
+        const resumeContentForAI = profile?.structuredResume 
+            ? geminiService.convertResumeDataToMarkdown(profile.structuredResume)
+            : resume;
 
+        // Extract applicant name from the beginning of the resume content (assuming H1 format)
+        const applicantNameMatch = resumeContentForAI.match(/^#\s*(.+?)\n/);
+        const applicantName = applicantNameMatch ? applicantNameMatch[1].trim() : profile?.name || 'Valued Applicant';
+
+        // Prefer profile contact info if provided
+        const finalUserPhone = profile?.phone || userPhone || '[Your Phone Number]';
+        const finalUserEmail = profile?.email || userEmail || '[Your Email Address]';
+        
         const prompt = `
           You are an expert career communications specialist.
           Write a compelling, professional, and personalized cover letter for the company "${company}", applying for the role implied by the "Job Description".
 
           Applicant Name: ${applicantName}
-          Applicant Phone: ${userPhone || '[Your Phone Number]'}
-          Applicant Email: ${userEmail || '[Your Email Address]'}
-          Current Date: ${today}
+          Applicant Phone: ${finalUserPhone}
+          Applicant Email: ${finalUserEmail}
+          Current Date: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
 
           Relevant Resume Context (for skills & experience):
-          ${resume.slice(0, 5000)}
+          ${resumeContentForAI.slice(0, 5000)}
 
           Target Job Description:
           ${jobDescription.slice(0, 5000)}
@@ -485,7 +733,7 @@ export const geminiService = {
               (123) 456-7890
               john.doe@example.com
 
-              ${today}
+              [Current Date]
           2.  **FORMAT**: Follow standard business letter format (address to "Hiring Manager" or "Hiring Team" if no specific name is known, use the Company Name).
           3.  **PERSONALIZATION**: Explicitly reference 2-3 key requirements from the job description and clearly link them to specific accomplishments or skills from the resume. Quantify impact where possible.
           4.  **TONE**: Maintain a confident, enthusiastic, and professional tone throughout.
@@ -507,9 +755,14 @@ export const geminiService = {
   /**
    * Generates interview questions and answers.
    */
-  generateInterviewPrep: async (resume: string, jobDescription: string, currentUser: string): Promise<InterviewQA[]> => {
+  generateInterviewPrep: async (resume: string, jobDescription: string, currentUser: string, profile?: UserProfile): Promise<InterviewQA[]> => {
     return handleApiCall(async () => {
         const ai = getClient();
+
+        // Use structured resume if available, otherwise raw content
+        const resumeContentForAI = profile?.structuredResume 
+            ? geminiService.convertResumeDataToMarkdown(profile.structuredResume)
+            : resume;
         
         const prompt = `
           You are an expert interview coach.
@@ -521,7 +774,7 @@ export const geminiService = {
           2.  A concise "tip" (1-2 sentences) for how the candidate should approach answering, or what the interviewer is looking for.
           
           Candidate's Master Resume (for context):
-          ${resume.slice(0, 5000)}
+          ${resumeContentForAI.slice(0, 5000)}
           
           Target Job Description:
           ${jobDescription.slice(0, 5000)}
@@ -563,47 +816,127 @@ export const geminiService = {
   /**
    * Parses raw resume text into structured data.
    */
-  parseResume: async (resumeText: string, currentUser: string): Promise<ParsedResume> => {
+  parseResume: async (resumeText: string, currentUser: string): Promise<ResumeData> => {
     return handleApiCall(async () => {
         const ai = getClient();
         
         const prompt = `
-          You are an expert resume data extractor.
-          Extract structured data from the following raw resume text. Prioritize clear and accurate extraction.
-          
-          Resume Text:
-          "${resumeText.slice(0, 10000)}"
+          You are an expert resume parser and formatter. Your task is to take raw resume text and convert it into a highly structured JSON format, suitable for an Applicant Tracking System (ATS) friendly builder.
 
-          Return a JSON object with the following exact keys. If a field is not found or is empty, omit the key from the JSON object.
-          - fullName: string (The candidate's full name).
-          - email: string (The candidate's email address).
-          - phone: string (The candidate's primary phone number, including country code if present, in E.164 format if possible e.g., +15551234567).
-          - skills: string[] (An array of key technical and soft skills, e.g., ["Python", "React", "Project Management", "Agile"]).
-          - experienceSummary: string (A brief, 1-2 sentence summary of the candidate's professional experience, highlighting key industries, years of experience, or most impactful achievements).
-          - educationSummary: string (A brief, 1-2 sentence summary of the candidate's highest education, e.g., "Master's in Computer Science from XYZ University, 2020").
+          Raw Resume Text:
+          ---
+          ${resumeText.slice(0, 10000)}
+          ---
+        
+          CRITICAL INSTRUCTIONS:
+          1.  Extract information into the exact JSON structure provided below.
+          2.  If a field is not found in the raw resume text, omit that key entirely from the JSON. Do NOT use "N/A", "null", or empty strings for missing fields unless specified.
+          3.  Ensure dates are parsed clearly (e.g., "Month Year - Month Year" or "Month Year - Present").
+          4.  For bullet points in experience and projects, extract them as separate strings within the 'bulletPoints' array.
+          5.  The 'order' field in sections should reflect a logical resume flow (e.g., Contact/Summary first, then Experience, Education, etc.).
+          6.  'type' in sections should be 'text', 'experience', 'education', 'skills', 'projects', 'certifications', 'awards'.
+          7.  Assign a unique 'id' (e.g., UUID or timestamp-based, like Date.now() + Math.random().toString(36).substring(2, 7)) to each ResumeSection, ExperienceItem, EducationItem, etc., for tracking in the builder. This ID is essential.
+
+          Return a JSON object with the following strict structure:
+          \`\`\`json
+          {
+            "contact": {
+              "name": "string",
+              "email": "string",
+              "phone": "string",
+              "linkedin": "string (optional)",
+              "github": "string (optional)",
+              "website": "string (optional)",
+              "portfolio": "string (optional)",
+              "location": "string (optional)"
+            },
+            "summary": "string (1-3 sentences, candidate's professional summary)",
+            "sections": [
+              {
+                "id": "string (unique ID)",
+                "title": "string (e.g., Work Experience, Education, Skills, Projects, Certifications, Awards, Additional Information)",
+                "type": "string ('text' | 'experience' | 'education' | 'skills' | 'projects' | 'certifications' | 'awards')",
+                "order": "number (e.g., 10, 20, 30 for sorting)",
+                "content": "string | array of objects (structure depends on type)"
+              }
+            ]
+          }
+          \`\`\`
+
+          Specifically for 'content' within sections:
+          -   If type is 'text': content is a string.
+          -   If type is 'experience': content is an array of ExperienceItem objects:
+              \`\`\`json
+              [{
+                "id": "string (unique ID)",
+                "company": "string",
+                "title": "string",
+                "location": "string",
+                "dates": "string",
+                "bulletPoints": ["string"]
+              }]
+              \`\`\`
+          -   If type is 'education': content is an array of EducationItem objects:
+              \`\`\`json
+              [{
+                "id": "string (unique ID)",
+                "degree": "string",
+                "institution": "string",
+                "location": "string",
+                "dates": "string",
+                "details": "string (optional)"
+              }]
+              \`\`\`
+          -   If type is 'skills': content is an array of SkillItem objects:
+              \`\`\`json
+              [{
+                "id": "string (unique ID)",
+                "category": "string (e.g., Programming Languages, Cloud Platforms)",
+                "skills": ["string"]
+              }]
+              \`\`\`
+          -   If type is 'projects': content is an array of ProjectItem objects:
+              \`\`\`json
+              [{
+                "id": "string (unique ID)",
+                "name": "string",
+                "dates": "string",
+                "description": "string (brief summary)",
+                "link": "string (optional)",
+                "bulletPoints": ["string (optional)"]
+              }]
+              \`\`\`
+          -   If type is 'certifications': content is an array of CertificationItem objects:
+              \`\`\`json
+              [{
+                "id": "string (unique ID)",
+                "name": "string",
+                "issuer": "string",
+                "date": "string",
+                "link": "string (optional)"
+              }]
+              \`\`\`
+          -   If type is 'awards': content is an array of AwardItem objects:
+              \`\`\`json
+              [{
+                "id": "string (unique ID)",
+                "name": "string",
+                "issuer": "string",
+                "date": "string",
+                "description": "string (optional)"
+              }]
+              \`\`\`
           
-          Ensure the JSON is perfectly valid and directly parsable. DO NOT include any conversational text outside the JSON.
+          Ensure the final JSON is perfectly valid and directly parsable. DO NOT include any conversational text outside the JSON block.
         `;
-
-        const schema = {
-          type: Type.OBJECT,
-          properties: {
-            fullName: { type: Type.STRING, description: 'The candidate\'s full name.' },
-            email: { type: Type.STRING, description: 'The candidate\'s email address.' },
-            phone: { type: Type.STRING, description: 'The candidate\'s primary phone number.' },
-            skills: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'An array of key technical and soft skills.' },
-            experienceSummary: { type: Type.STRING, description: 'A brief summary of the candidate\'s professional experience.' },
-            educationSummary: { type: Type.STRING, description: 'A brief summary of the candidate\'s highest education.' },
-          },
-          required: [] // No required fields, as some might be missing in raw text
-        };
 
         const response = await ai.models.generateContent({
           model: MODEL_FAST,
           contents: prompt,
           config: {
             responseMimeType: 'application/json',
-            responseSchema: schema
+            // No responseSchema here because the structure is too complex and dynamic.
+            // We rely on the prompt to enforce it.
           }
         });
 
@@ -627,8 +960,12 @@ export const geminiService = {
           },
         });
 
-        // FIX: Added explicit return type to the Promise.
-        return extractJSON(response.text || 'null') as { city: string; country: string; description: string; temperature: number } | null;
+        // FIX: Access `data.country` directly as its type has been updated in geminiService.ts
+        const parsedData = extractJSON(response.text || 'null') as { city: string; country: string; description: string; temperature: number } | null;
+        if (parsedData && parsedData.city && parsedData.country && parsedData.description && typeof parsedData.temperature === 'number') {
+          return parsedData;
+        }
+        return null;
     }, LogActionType.GEOLOCATION_FETCH, `Weather fetch for coords ${latitude}, ${longitude}`, currentUser);
   },
 
@@ -644,11 +981,12 @@ export const geminiService = {
           Resume Content:
           "${resumeText.slice(0, 10000)}"
           
-          Provide a comprehensive analysis in a strict JSON format. Evaluate the following four key areas, providing a 'pass' (boolean, true if meets standard, false if needs significant improvement) and 'feedback' (string, 1-2 concise sentences for actionable advice) for each:
+          Provide a comprehensive analysis in a strict JSON format. Evaluate the following five key areas, providing a 'pass' (boolean, true if meets standard, false if needs significant improvement) and 'feedback' (string, 1-2 concise sentences for actionable advice) for each:
           1.  atsFriendly: Does the format (e.g., single-column, no tables/graphics, standard fonts) make it easily parsable by an Applicant Tracking System? Penalize for complex layouts.
           2.  actionVerbs: Does the resume consistently use strong, dynamic action verbs at the start of bullet points, avoiding passive language (e.g., "responsible for")?
           3.  quantifiableMetrics: Are achievements backed by specific numbers, percentages, or concrete data to clearly demonstrate impact and results?
-          4.  clarity: Is the language clear, concise, and professional, free of excessive jargon? Is the candidate's value proposition and career narrative easy to understand?
+          4.  keywords: How well are relevant keywords integrated into the resume based on general industry best practices?
+          5.  clarity: Is the language clear, concise, and professional, free of excessive jargon? Is the candidate's value proposition and career narrative easy to understand?
 
           Finally, provide an overall 'score' (number, 0-100) and a brief 'summary' (string, 2-3 sentences) of the resume's greatest strengths and most critical areas for improvement.
 
@@ -684,6 +1022,14 @@ export const geminiService = {
               },
               required: ['pass', 'feedback']
             },
+            keywords: { 
+              type: Type.OBJECT, 
+              properties: { 
+                pass: { type: Type.BOOLEAN, description: 'True if keywords are well integrated, false otherwise.' }, 
+                feedback: { type: Type.STRING, description: 'Actionable feedback for keyword optimization.' } 
+              },
+              required: ['pass', 'feedback']
+            },
             clarity: { 
               type: Type.OBJECT, 
               properties: { 
@@ -693,7 +1039,7 @@ export const geminiService = {
               required: ['pass', 'feedback']
             },
           },
-          required: ['score', 'summary', 'atsFriendly', 'actionVerbs', 'quantifiableMetrics', 'clarity']
+          required: ['score', 'summary', 'atsFriendly', 'actionVerbs', 'quantifiableMetrics', 'keywords', 'clarity']
         };
 
         const response = await ai.models.generateContent({
@@ -752,8 +1098,8 @@ export const geminiService = {
           User's Key Profile Information (for context and personalization):
           - Name: ${profile.name || 'Job Seeker'}
           - Current/Target Title: ${profile.title || profile.targetRoles || 'Experienced Professional'}
-          - Core Skills from Parsed Resume: ${profile.parsedData?.skills?.join(', ') || 'N/A'}
-          - General Resume Summary: ${profile.resumeContent.slice(0, 2000) || 'N/A'}
+          - Core Skills from Master Resume (if available): ${profile.structuredResume ? (profile.structuredResume.sections.find(s => s.type === 'skills')?.content as SkillItem[] || []).flatMap(s => s.skills).join(', ') : profile.resumeContent.slice(0, 2000) || 'N/A'}
+          - General Resume Summary: ${profile.structuredResume?.summary || profile.resumeContent.slice(0, 2000) || 'N/A'}
 
           Current LinkedIn "${section}" section text:
           "${currentText.slice(0, 2000)}"
@@ -778,6 +1124,11 @@ export const geminiService = {
   draftNetworkingMessage: async (scenario: string, recipientInfo: string, profile: UserProfile, currentUser: string): Promise<string> => {
     return handleApiCall(async () => {
         const ai = getClient();
+        
+        // Use structured resume if available
+        const userSkills = profile.structuredResume ? (profile.structuredResume.sections.find(s => s.type === 'skills')?.content as SkillItem[] || []).flatMap(s => s.skills).join(', ') : 'N/A';
+        const userSummary = profile.structuredResume?.summary || profile.resumeContent.slice(0, 2000) || 'N/A';
+
         const prompt = `
           You are an expert career communications strategist. Your task is to draft a concise, professional, and effective networking message for the user.
 
@@ -785,6 +1136,8 @@ export const geminiService = {
           - Name: ${profile.name || 'Job Seeker'}
           - Current/Target Title: ${profile.title || profile.targetRoles || 'Professional'}
           - LinkedIn Profile: ${profile.linkedin || 'N/A'}
+          - Core Skills: ${userSkills}
+          - Professional Summary: ${userSummary}
 
           Networking Scenario: "${scenario.slice(0, 1000)}" (e.g., "Connecting with a hiring manager after applying", "Reaching out to an alumnus for an informational interview")
           Recipient Information: "${recipientInfo.slice(0, 1000)}" (e.g., "Jane Doe, Senior Recruiter at TechCorp, who I met at the XYZ conference")
@@ -818,13 +1171,16 @@ export const geminiService = {
       const userTitle = profile.title || profile.targetRoles || 'job seeker';
       const currentDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
+      // Use structured resume summary if available
+      const userSummary = profile.structuredResume?.summary || profile.resumeContent.slice(0, 2000) || 'N/A';
+
       // Dynamically construct prompt based on EmailPurpose
       switch (emailPurpose) {
         case EmailPurpose.PROFESSIONAL_REWRITE:
           prompt = `Act as a senior communication specialist. Rewrite this email to sound professional, clear, concise, and polite while keeping my original intent. Improve tone, structure, grammar, and flow. My email: "${context}"`;
           break;
         case EmailPurpose.COLD_EMAIL:
-          prompt = `Write a persuasive, short, high-impact cold email for this purpose: "${context}". Include a strong hook, value proposition, credibility (mentioning expertise as a ${userTitle}), and a simple CTA. Make it sound human, confident, and non-salesy.
+          prompt = `Write a persuasive, short, high-impact cold email for this purpose: "${context}". Include a strong hook, value proposition (mentioning relevant experience/skills from: ${userSummary}), credibility (mentioning expertise as a ${userTitle}), and a simple CTA. Make it sound human, confident, and non-salesy.
           Sender Info:
           Name: ${userName}
           Email: ${userEmail}
@@ -875,4 +1231,84 @@ export const geminiService = {
       return text;
     }, LogActionType.EMAIL_COMPOSE, `Email composition for purpose: "${emailPurpose}"`, currentUser);
   },
+
+  // Helper to convert structured ResumeData to Markdown for AI processing
+  // This is a client-side helper, not an AI call.
+  convertResumeDataToMarkdown: (resumeData: ResumeData): string => {
+    if (!resumeData || !resumeData.contact) return "";
+
+    const contactInfoArray = [];
+    if (resumeData.contact.email) contactInfoArray.push(resumeData.contact.email);
+    if (resumeData.contact.phone) contactInfoArray.push(resumeData.contact.phone);
+    if (resumeData.contact.linkedin) contactInfoArray.push(`[LinkedIn](${resumeData.contact.linkedin})`);
+    if (resumeData.contact.github) contactInfoArray.push(`[GitHub](${resumeData.contact.github})`);
+    if (resumeData.contact.website) contactInfoArray.push(`[Portfolio](${resumeData.contact.website})`);
+    if (resumeData.contact.location) contactInfoArray.push(resumeData.contact.location);
+
+    let markdown = `# ${resumeData.contact.name || 'Candidate Name'}\n`;
+    if (contactInfoArray.length > 0) {
+        markdown += `${contactInfoArray.join(' | ')}\n\n`;
+    }
+
+    if (resumeData.summary) {
+        markdown += `## SUMMARY\n${resumeData.summary}\n\n`;
+    }
+
+    resumeData.sections.sort((a, b) => a.order - b.order).forEach(section => {
+        markdown += `## ${section.title}\n`;
+        if (section.type === 'text' && typeof section.content === 'string') {
+            markdown += `${section.content}\n\n`;
+        } else if (section.type === 'experience' && Array.isArray(section.content)) {
+            (section.content as ExperienceItem[]).forEach(item => {
+                markdown += `**${item.company}** | ${item.location}\n`;
+                markdown += `*${item.title}* | ${item.dates}\n`;
+                item.bulletPoints.forEach(bp => {
+                    markdown += `- ${bp}\n`;
+                });
+                markdown += '\n';
+            });
+        } else if (section.type === 'education' && Array.isArray(section.content)) {
+            (section.content as EducationItem[]).forEach(item => {
+                markdown += `**${item.institution}** | ${item.location}\n`;
+                markdown += `*${item.degree}* | ${item.dates}\n`;
+                if (item.details) markdown += `${item.details}\n`;
+                markdown += '\n';
+            });
+        } else if (section.type === 'skills' && Array.isArray(section.content)) {
+            (section.content as SkillItem[]).forEach(item => {
+                markdown += `**${item.category}:** ${item.skills.join(', ')}\n`;
+            });
+            markdown += '\n';
+        } else if (section.type === 'projects' && Array.isArray(section.content)) {
+            (section.content as ProjectItem[]).forEach(item => {
+                markdown += `**${item.name}** | ${item.dates}\n`;
+                if (item.link) markdown += `[Link](${item.link})\n`;
+                markdown += `${item.description}\n`;
+                if (item.bulletPoints) {
+                    item.bulletPoints.forEach(bp => {
+                        markdown += `- ${bp}\n`;
+                    });
+                }
+                markdown += '\n';
+            });
+        } else if (section.type === 'certifications' && Array.isArray(section.content)) {
+            (section.content as CertificationItem[]).forEach(item => {
+                markdown += `**${item.name}** | ${item.issuer}\n`;
+                markdown += `*${item.date}*\n`;
+                if (item.link) markdown += `[Link](${item.link})\n`;
+                markdown += '\n';
+            });
+        } else if (section.type === 'awards' && Array.isArray(section.content)) {
+            (section.content as AwardItem[]).forEach(item => {
+                markdown += `**${item.name}** | ${item.issuer}\n`;
+                markdown += `*${item.date}*\n`;
+                if (item.description) markdown += `${item.description}\n`;
+                markdown += '\n';
+            });
+        }
+    });
+
+    return markdown;
+  },
+
 };

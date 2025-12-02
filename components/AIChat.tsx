@@ -5,8 +5,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI, Chat, GenerateContentResponse } from '@google/genai';
 import { Bot, Send, User, Info, TrendingUp } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import { UserProfile, ChatMessage, SubscriptionTier, EmailPurpose } from '../types';
+import { UserProfile, ChatMessage, SubscriptionTier, EmailPurpose, LogActionType } from '../types';
 import { useNotifications } from '../context/NotificationContext';
+import { logService } from '../services/logService';
 
 const getClient = () => {
   const apiKey = process.env.API_KEY;
@@ -17,9 +18,11 @@ const getClient = () => {
 interface AIChatProps {
   profile: UserProfile;
   subscriptionTier: SubscriptionTier | null; // New: User's subscription tier
+  // FIX: Add currentUser prop
+  currentUser: string; 
 }
 
-const AIChat: React.FC<AIChatProps> = ({ profile, subscriptionTier }) => {
+export const AIChat: React.FC<AIChatProps> = ({ profile, subscriptionTier, currentUser }) => {
     const [chat, setChat] = useState<Chat | null>(null);
     const [history, setHistory] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
@@ -68,119 +71,109 @@ const AIChat: React.FC<AIChatProps> = ({ profile, subscriptionTier }) => {
   
         newChat.sendMessage({ message: "Introduce yourself and ask how you can help." }).then((result: GenerateContentResponse) => {
             setHistory([{ role: 'model', parts: [{ text: result.text || '' }] }]);
+            logService.log(currentUser, LogActionType.EMAIL_COMPOSE, `AI Chat initiated by model.`, 'debug');
             chatTurnCountRef.current += 1; // Count initial model message as a turn
         }).catch(e => {
             console.error(e);
             addNotification("Failed to start chat. Check API key or network.", "error");
-            setHistory([{ role: 'model', parts: [{ text: "Hello! I'm your AI Career Coach. How can I help?" }] }]);
-        }).finally(() => setLoading(false));
-    }, [profile, addNotification]);
+            logService.log(currentUser, LogActionType.ERROR_OCCURRED, `AI Chat initiation failed: ${e.message}`, 'error'); // FIX: Log the error
+        }).finally(() => { // FIX: Finally block to ensure loading is set to false
+            setLoading(false);
+        });
+    }, [profile, addNotification, currentUser]); // Dependencies: profile, addNotification, currentUser
   
     useEffect(() => {
-        if (chatContainerRef.current) {
-            chatContainerRef.current.scrollTo({
-                top: chatContainerRef.current.scrollHeight,
-                behavior: 'smooth'
-            });
-        }
+      if (chatContainerRef.current) {
+        chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      }
     }, [history]);
-
-    const handleSend = async () => {
-      if (!input.trim() || !chat) return;
-      if (isOffline) { // Prevent sending if offline
+  
+    const sendMessage = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!input.trim() || !chat || loading) return;
+  
+      if (isOffline) {
         addNotification("Cannot send message: You are offline.", "info");
+        logService.log(currentUser, LogActionType.EMAIL_COMPOSE, 'Blocked AI Chat message: offline.', 'warn');
         return;
       }
-
-      if (subscriptionTier === SubscriptionTier.FREE && chatTurnCountRef.current >= freeTierChatLimit) {
-        addNotification(`Free tier chat limit reached (${freeTierChatLimit} turns per session). Upgrade to AI Pro for unlimited chat!`, 'info');
+  
+      if (!isAIPro && chatTurnCountRef.current >= freeTierChatLimit) {
+        addNotification(`Free tier chat limit reached (${freeTierChatLimit} turns). Upgrade to AI Pro for unlimited chat!`, 'info');
+        logService.log(currentUser, LogActionType.EMAIL_COMPOSE, 'Blocked AI Chat message: free tier limit.', 'warn');
         return;
       }
-      if (subscriptionTier === SubscriptionTier.FREE) {
-        addNotification(`Free tier chat turn: ${chatTurnCountRef.current + 1}/${freeTierChatLimit}`, 'info');
-      }
-
+  
       const userMessage: ChatMessage = { role: 'user', parts: [{ text: input }] };
       setHistory(prev => [...prev, userMessage]);
       setInput('');
       setLoading(true);
+      logService.log(currentUser, LogActionType.EMAIL_COMPOSE, `AI Chat message sent by user: "${input.slice(0, 50)}".`, 'debug');
+  
       try {
         const result: GenerateContentResponse = await chat.sendMessage({ message: input });
-        const modelMessage: ChatMessage = { role: 'model', parts: [{ text: result.text || 'Sorry, I encountered an issue.' }] };
-        setHistory(prev => [...prev, modelMessage]);
-        chatTurnCountRef.current += 1; // Increment count on successful model response
-      } catch (error: any) {
-        console.error('Gemini chat error:', error);
-         if (error.message && error.message.includes('RATE_LIMIT_EXCEEDED')) {
-             addNotification("Chat API limit reached. Please wait a minute before trying again.", 'info');
-             setHistory(prev => [...prev, { role: 'model', parts: [{ text: "Looks like we're chatting a lot! The free tier has a limit, so let's pause for a minute." }] }]);
-         } else if (error.message === 'OFFLINE') {
-            addNotification("Cannot send message: You are offline.", "info");
-            setHistory(prev => [...prev, { role: 'model', parts: [{ text: "Cannot send message: You are offline." }] }]);
-         } else {
-            addNotification("Oops! I couldn't connect to the AI.", 'error');
-            setHistory(prev => [...prev, { role: 'model', parts: [{ text: "Oops! I couldn't connect to the AI." }] }]);
-         }
+        const modelResponse: ChatMessage = { role: 'model', parts: [{ text: result.text || '' }] };
+        setHistory(prev => [...prev, modelResponse]);
+        logService.log(currentUser, LogActionType.EMAIL_COMPOSE, `AI Chat message received from model: "${modelResponse.parts[0].text.slice(0, 50)}".`, 'debug');
+        chatTurnCountRef.current += 1; // Increment turn count
+      } catch (e: any) {
+        console.error(e);
+        addNotification("Failed to get response from AI. Please try again.", "error");
+        logService.log(currentUser, LogActionType.ERROR_OCCURRED, `AI Chat message failed: ${e.message}`, 'error');
       } finally {
         setLoading(false);
       }
     };
-
-    const isFreeTierLimitReached = subscriptionTier === SubscriptionTier.FREE && chatTurnCountRef.current >= freeTierChatLimit;
-
+  
+    const isChatDisabled = loading || !chat || isOffline || (!isAIPro && chatTurnCountRef.current >= freeTierChatLimit);
+  
     return (
-        <div className="flex flex-col h-full">
-            <div ref={chatContainerRef} className="flex-1 p-6 space-y-6 overflow-y-auto custom-scrollbar" role="log" aria-live="polite">
-                {history.map((msg, index) => (
-                  <div key={index} className={`flex items-start gap-4 ${msg.role === 'user' ? 'justify-end' : ''}`}>
-                    {msg.role === 'model' && <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white flex-shrink-0 shadow-md" aria-hidden="true"><Bot size={20} /></div>}
-                    <div className={`max-w-xl p-4 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-br-lg prose-invert' : 'bg-gray-100 dark:bg-slate-700 text-gray-800 dark:text-slate-200 rounded-bl-lg'} prose prose-sm dark:prose-invert max-w-none prose-p:my-1`}>
-                      <ReactMarkdown>{msg.parts[0].text}</ReactMarkdown>
-                    </div>
-                    {msg.role === 'user' && <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-slate-600 flex items-center justify-center text-gray-600 dark:text-slate-300 flex-shrink-0" aria-hidden="true"><User size={20} /></div>}
-                  </div>
-                ))}
-                {loading && <div className="flex items-start gap-4"><div className="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white flex-shrink-0" aria-hidden="true"><Bot size={20} /></div><div className="p-4 rounded-2xl bg-gray-100 dark:bg-slate-700 animate-pulse">...</div></div>}
+      <div className="flex flex-col h-full bg-gray-50/50 dark:bg-slate-900/50 relative">
+        <div className="flex-1 p-6 overflow-y-auto custom-scrollbar" ref={chatContainerRef}>
+          {history.map((msg, index) => (
+            <div key={index} className={`mb-4 flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div
+                className={`max-w-[70%] p-4 rounded-3xl ${
+                  msg.role === 'user'
+                    ? 'bg-indigo-600 text-white rounded-br-none'
+                    : 'bg-white dark:bg-slate-800 text-gray-800 dark:text-white rounded-bl-none shadow-md border border-gray-100 dark:border-slate-700'
+                }`}
+              >
+                <ReactMarkdown>{msg.parts[0].text}</ReactMarkdown>
+              </div>
             </div>
-            <div className="p-4 border-t border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800">
-                {isFreeTierLimitReached && (
-                  <div className="flex items-center gap-2 bg-purple-50 dark:bg-purple-900/20 p-3 rounded-xl border border-purple-100 dark:border-purple-800 text-purple-900 dark:text-purple-300 mb-4 animate-fade-in" role="alert">
-                    <Info size={18} className="text-purple-500 flex-shrink-0" aria-hidden="true" />
-                    <p className="text-sm">Free tier chat limit reached. Upgrade to AI Pro for unlimited conversations!</p>
-                    <TrendingUp size={18} className="ml-auto flex-shrink-0" aria-hidden="true" />
-                  </div>
-                )}
-                {isOffline && (
-                    <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 p-3 rounded-xl border border-red-100 dark:border-red-800 text-red-900 dark:text-red-300 mb-4 animate-fade-in" role="alert">
-                        <Info size={18} className="text-red-500 flex-shrink-0" aria-hidden="true" />
-                        <p className="text-sm">Offline: This feature requires an internet connection.</p>
-                    </div>
-                )}
-                <div className="relative">
-                    <input 
-                      type="text" 
-                      value={input} 
-                      onChange={(e) => setInput(e.target.value)} 
-                      onKeyDown={(e) => e.key === 'Enter' && !loading && handleSend()} 
-                      placeholder="Ask a question..." 
-                      className="w-full p-4 pr-14 bg-gray-50 dark:bg-slate-900 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-gray-900 dark:text-white" 
-                      disabled={loading || isFreeTierLimitReached || isOffline} 
-                      aria-label="Chat input"
-                      title={isOffline ? "Requires internet connection" : (isFreeTierLimitReached ? "Free tier limit reached" : "")}
-                    />
-                    <button 
-                      onClick={handleSend} 
-                      disabled={loading || !input.trim() || isFreeTierLimitReached || isOffline} 
-                      className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 bg-indigo-600 text-white rounded-lg flex items-center justify-center hover:bg-indigo-700 disabled:opacity-50"
-                      aria-label="Send message"
-                      title={isOffline ? "Requires internet connection" : (isFreeTierLimitReached ? "Free tier limit reached" : (!input.trim() ? "Type a message first" : ""))}
-                    >
-                      <Send size={18} />
-                    </button>
-                </div>
-            </div>
+          ))}
         </div>
+  
+        <form onSubmit={sendMessage} className="p-6 border-t border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800 flex items-center gap-4 relative">
+          <input
+            type="text"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            placeholder={isChatDisabled ? (isOffline ? "You are offline." : (!isAIPro ? "Free tier chat limit reached." : "Loading AI chat...") ) : "Type your message..."}
+            className="flex-1 p-3 bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-gray-900 dark:text-white"
+            disabled={isChatDisabled}
+            title={isOffline ? "Requires internet connection" : !isAIPro ? `Free tier chat limit reached (${freeTierChatLimit} turns). Upgrade to AI Pro for unlimited chat!` : ""}
+          />
+          <button
+            type="submit"
+            disabled={isChatDisabled}
+            className="bg-indigo-600 text-white p-3 rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Send size={20} />
+          </button>
+  
+          {!isAIPro && (
+            <div className="absolute -top-8 right-6 flex items-center gap-1 text-sm bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 px-3 py-1 rounded-full font-bold">
+              <Info size={14} /> Free Tier: {chatTurnCountRef.current} / {freeTierChatLimit} turns
+            </div>
+          )}
+          {isOffline && (
+              <p className="text-sm text-red-500 dark:text-red-400 absolute -top-8 left-6 flex items-center justify-center gap-1" role="alert">
+                <Info size={16} aria-hidden="true"/> Offline: Requires internet connection.
+              </p>
+            )}
+        </form>
+      </div>
     );
 };
-
-export default AIChat;

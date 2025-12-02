@@ -16,7 +16,7 @@ import {
   Settings,
   LogOut,
   Globe,
-  Sun, Cloud, CloudRain, CloudSnow, Wind, RefreshCw, BrainCircuit, Wallet, Mail // Import weather icons and refresh, BrainCircuit, Wallet for pricing, Mail for email assistant
+  Sun, Cloud, CloudRain, CloudSnow, Wind, RefreshCw, BrainCircuit, Wallet, Mail, FileCheck // Import weather icons and refresh, BrainCircuit, Wallet for pricing, Mail for email assistant, FileCheck for Resume Builder
 } from 'lucide-react';
 import { ViewState, SubscriptionTier, LogActionType } from '../types';
 import { ThemeToggle } from './ThemeToggle';
@@ -28,7 +28,7 @@ interface SidebarProps {
   setSidebarOpen: (open: boolean) => void;
   onLogout: () => void;
   isAdmin: boolean;
-  globalWeather: { city: string; description: string; temperature: number } | null; // New prop for global weather
+  globalWeather: { city: string; description: string; temperature: number; country: string } | null; // Added country to weather data
   refetchGlobalWeather: (force?: boolean) => void; // New prop for refetching weather
   subscriptionTier: SubscriptionTier | null; // New: User's subscription tier
 }
@@ -71,6 +71,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ view, setView, sidebarOpen, se
       <nav className="flex-1 space-y-1.5 overflow-y-auto custom-scrollbar pr-2">
         <NavItem id="HOME" icon={Home} label="Home" />
         <NavItem id="PROFILE" icon={UserCircle} label="Profile" />
+        <NavItem id="RESUME_BUILDER" icon={FileCheck} label="Resume Builder" /> {/* NEW Resume Builder Nav Item */}
         
         <div className="pt-6 pb-2 px-4 text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest">Workflow</div>
         <NavItem id="JOB_SEARCH" icon={Search} label="Find Jobs" />
@@ -121,6 +122,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ view, setView, sidebarOpen, se
               <div>
                 <p className="text-xs font-bold text-gray-800 dark:text-white mb-0.5">
                   {globalWeather.city}
+                  {globalWeather.country && <span className="text-gray-500 dark:text-slate-400">, {globalWeather.country}</span>}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">
                   {Math.round(globalWeather.temperature)}°C, {globalWeather.description}

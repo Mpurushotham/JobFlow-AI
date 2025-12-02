@@ -1,4 +1,5 @@
 
+
 export enum JobStatus {
   WISHLIST = 'WISHLIST',
   APPLIED = 'APPLIED',
@@ -56,6 +57,82 @@ export interface ParsedResume {
   educationSummary?: string;
 }
 
+// NEW: Resume Data for Builder
+export interface ContactInfo {
+  name: string;
+  email: string;
+  phone: string;
+  linkedin?: string;
+  github?: string;
+  website?: string;
+  portfolio?: string;
+  location?: string;
+}
+
+export interface ExperienceItem {
+  id: string; // Unique ID for keying in React lists
+  company: string;
+  title: string;
+  location: string;
+  dates: string;
+  bulletPoints: string[];
+}
+
+export interface EducationItem {
+  id: string; // Unique ID
+  degree: string;
+  institution: string;
+  location: string;
+  dates: string;
+  details?: string;
+}
+
+export interface SkillItem {
+  id: string; // Unique ID
+  category: string;
+  skills: string[]; // e.g., ["Python", "JavaScript"]
+}
+
+export interface ProjectItem {
+  id: string; // Unique ID
+  name: string;
+  dates: string;
+  description: string;
+  link?: string;
+  bulletPoints?: string[];
+}
+
+export interface CertificationItem {
+  id: string; // Unique ID
+  name: string;
+  issuer: string;
+  date: string;
+  link?: string;
+}
+
+export interface AwardItem {
+  id: string; // Unique ID
+  name: string;
+  issuer: string;
+  date: string;
+  description?: string;
+}
+
+export interface ResumeSection {
+  id: string; // Unique ID for section management
+  title: string;
+  content: string | ExperienceItem[] | EducationItem[] | SkillItem[] | ProjectItem[] | CertificationItem[] | AwardItem[];
+  order: number; // For custom section ordering
+  type: 'text' | 'experience' | 'education' | 'skills' | 'projects' | 'certifications' | 'awards';
+}
+
+export interface ResumeData {
+  contact: ContactInfo;
+  summary: string;
+  sections: ResumeSection[];
+}
+
+
 export interface MasterResumeFitResult {
   score: number;
   summary: string;
@@ -95,10 +172,21 @@ export interface UserProfile {
   location?: string;
   resumeContent: string;
   targetRoles: string;
-  parsedData?: ParsedResume;
+  // parsedData?: ParsedResume; // REMOVE: Replaced by structuredResume
+  structuredResume?: ResumeData | null; // NEW: Structured resume data for the builder
   targetJobDescription?: string; // New: For master resume fit analysis
   masterResumeFit?: string; // New: JSON stringified MasterResumeFitResult
   subscriptionTier?: SubscriptionTier; // New: User's subscription tier
+}
+
+export interface ResumeATSScore {
+  score: number;
+  summary: string;
+  atsFriendly: { feedback: string; pass: boolean; };
+  actionVerbs: { feedback: string; pass: boolean; };
+  quantifiableMetrics: { feedback: string; pass: boolean; };
+  keywords: { feedback: string; pass: boolean; }; // Added missing keywords prop
+  clarity: { feedback: string; pass: boolean; };
 }
 
 export interface SearchResult {
@@ -131,7 +219,7 @@ export interface RecentSearchQuery {
   timestamp: number;
 }
 
-export type ViewState = 'HOME' | 'PROFILE' | 'JOB_SEARCH' | 'JOBS' | 'TRACKER' | 'INTERVIEWS' | 'ANALYTICS' | 'WORKSPACE' | 'DONATE' | 'AI_COACH' | 'ADMIN' | 'ONLINE_PRESENCE' | 'PRICING' | 'SECURITY_PRIVACY';
+export type ViewState = 'HOME' | 'PROFILE' | 'JOB_SEARCH' | 'JOBS' | 'TRACKER' | 'INTERVIEWS' | 'ANALYTICS' | 'WORKSPACE' | 'DONATE' | 'AI_COACH' | 'ADMIN' | 'ONLINE_PRESENCE' | 'PRICING' | 'SECURITY_PRIVACY' | 'RESUME_BUILDER';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -146,6 +234,7 @@ export interface ResumeGrade {
   actionVerbs: { feedback: string; pass: boolean; };
   quantifiableMetrics: { feedback: string; pass: boolean; };
   clarity: { feedback: string; pass: boolean; };
+  keywords: { feedback: string; pass: boolean; }; // Added missing keywords prop
   summary: string;
 }
 
@@ -207,6 +296,12 @@ export enum LogActionType {
   NETWORKING_MESSAGE_DRAFT = 'Networking Message Drafted (AI)',
   EMAIL_COMPOSE = 'Email Composed (AI)',
   RESUME_GRADE = 'Resume Graded (AI)',
+  RESUME_BUILDER_OPEN = 'Resume Builder Opened', // NEW
+  RESUME_BUILDER_AI_AUTOFILL = 'Resume Builder Auto-Filled (AI)', // NEW
+  RESUME_BUILDER_SECTION_EDIT = 'Resume Builder Section Edited', // NEW
+  RESUME_ATS_EVALUATED = 'ATS Score Evaluated (AI)', // NEW
+  RESUME_DOWNLOAD = 'Resume Downloaded', // NEW
+  RESUME_DOWNLOAD_DOCX = 'Resume Downloaded (DOCX)', // NEW
   SUBSCRIPTION_CHANGE = 'Subscription Tier Changed',
   ADMIN_DATA_CLEAR = 'Admin Cleared All Data',
   ADMIN_DATA_EXPORT = 'Admin Exported All Data',

@@ -1,3 +1,4 @@
+
 // A client-side-only auth service for a multi-user, single-browser environment.
 import { storageService } from './storageService';
 import { User, SubscriptionTier, LogActionType } from '../types';
@@ -105,6 +106,7 @@ export const authService = {
       return { success: true, isAdmin: true, username: 'admin', subscriptionTier: SubscriptionTier.AI_PRO, message: 'Admin login successful.' };
     }
 
+    // FIX: Await the promise for getAllUsers
     const users = await storageService.getAllUsers();
     const user = users.find(u => u.username === trimmedUsername);
 
@@ -207,7 +209,8 @@ export const authService = {
     const trimmedNewPassword = newPassword.trim();
     const trimmedNewPin = newPin.trim();
 
-    const users = await storageService.getAllUsers(); // FIX: Await the promise for getAllUsers
+    // FIX: Await the promise for getAllUsers
+    const users = await authService.getAllUsers();
     const userIndex = users.findIndex(u => u.username === trimmedUsername && u.email === trimmedEmail && u.phone === trimmedPhone);
     if (userIndex === -1) {
       logService.log('guest', LogActionType.USER_LOGIN_FAILED, `Password reset failed: User '${trimmedUsername}' not found or contact details mismatch.`, 'warn');

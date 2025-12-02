@@ -8,12 +8,13 @@ import { geminiService } from '../services/geminiService';
 import { useNotifications } from '../context/NotificationContext';
 import { LoadingOverlay } from '../components/LoadingOverlay';
 import ReactMarkdown from 'react-markdown';
-import { logService } from '../services/logService'; // Import logService
+import { logService } from './logService'; // Import logService
 
 interface OnlinePresenceViewProps {
   profile: UserProfile;
   subscriptionTier: SubscriptionTier | null; // New: User's subscription tier
-  currentUser: string; // FIX: Add currentUser prop
+  // FIX: Add currentUser prop
+  currentUser: string; 
 }
 
 // FIX: Added a return statement with JSX for the component and made it a default export.
@@ -135,7 +136,7 @@ const OnlinePresenceView: React.FC<OnlinePresenceViewProps> = ({ profile, subscr
       return;
     }
 
-    if (!isAIPro && emailPurpose !== EmailPurpose.PROFESSIONAL_REWRITE && emailPurpose !== EmailPurpose.SIMPLIFY_EMAIL) {
+    if (!isAIPro && (emailPurpose !== EmailPurpose.PROFESSIONAL_REWRITE && emailPurpose !== EmailPurpose.SIMPLIFY_EMAIL)) {
       addNotification("This email purpose requires an AI Pro subscription. Upgrade to unlock!", 'info');
       logService.log(currentUser, LogActionType.EMAIL_COMPOSE, `Blocked email compose for "${emailPurpose}": AI Pro feature for Free user.`, 'warn');
       return;
