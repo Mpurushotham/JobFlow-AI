@@ -1,6 +1,4 @@
 
-
-
 import React from 'react';
 import { 
   Home, 
@@ -16,7 +14,7 @@ import {
   Settings,
   LogOut,
   Globe,
-  Sun, Cloud, CloudRain, CloudSnow, Wind, RefreshCw, BrainCircuit, Wallet, Mail, FileCheck // Import weather icons and refresh, BrainCircuit, Wallet for pricing, Mail for email assistant, FileCheck for Resume Builder
+  Sun, Cloud, CloudRain, CloudSnow, Wind, RefreshCw, BrainCircuit, Wallet, Mail, FileCheck // Import FileCheck for Resume Builder
 } from 'lucide-react';
 import { ViewState, SubscriptionTier, LogActionType } from '../types';
 import { ThemeToggle } from './ThemeToggle';
@@ -28,9 +26,9 @@ interface SidebarProps {
   setSidebarOpen: (open: boolean) => void;
   onLogout: () => void;
   isAdmin: boolean;
-  globalWeather: { city: string; description: string; temperature: number; country: string } | null; // Added country to weather data
-  refetchGlobalWeather: (force?: boolean) => void; // New prop for refetching weather
-  subscriptionTier: SubscriptionTier | null; // New: User's subscription tier
+  globalWeather: { city: string; description: string; temperature: number; country: string } | null;
+  refetchGlobalWeather: (force?: boolean) => void;
+  subscriptionTier: SubscriptionTier | null;
 }
 
 const getWeatherIcon = (description: string): React.ReactElement => {
@@ -71,7 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ view, setView, sidebarOpen, se
       <nav className="flex-1 space-y-1.5 overflow-y-auto custom-scrollbar pr-2">
         <NavItem id="HOME" icon={Home} label="Home" />
         <NavItem id="PROFILE" icon={UserCircle} label="Profile" />
-        <NavItem id="RESUME_BUILDER" icon={FileCheck} label="Resume Builder" /> {/* NEW Resume Builder Nav Item */}
+        <NavItem id="RESUME_BUILDER" icon={FileCheck} label="Resume Builder" />
         
         <div className="pt-6 pb-2 px-4 text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest">Workflow</div>
         <NavItem id="JOB_SEARCH" icon={Search} label="Find Jobs" />
@@ -85,7 +83,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ view, setView, sidebarOpen, se
         <NavItem id="ONLINE_PRESENCE" icon={Globe} label="Online Presence" />
 
         <div className="pt-6 pb-2 px-4 text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest">Account</div>
-        <NavItem id="PRICING" icon={Wallet} label="Pricing Plans" /> {/* New: Pricing Plan Nav Item */}
+        <NavItem id="PRICING" icon={Wallet} label="Pricing Plans" />
 
         {isAdmin && (
           <>
@@ -115,7 +113,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ view, setView, sidebarOpen, se
            <LogOut size={18} /> Logout
          </button>
 
-         {/* Global Weather Display */}
          {globalWeather && globalWeather.city && typeof globalWeather.temperature === 'number' ? (
             <div className={`rounded-2xl p-4 flex items-center gap-3 transition-colors bg-indigo-50/50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-900`}>
               {getWeatherIcon(globalWeather.description)}

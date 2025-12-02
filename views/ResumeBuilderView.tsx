@@ -423,9 +423,8 @@ const ResumeBuilderView: React.FC<ResumeBuilderViewProps> = ({ profile, onSavePr
                 </div>
               )}
 
-              {resumeData && (           
-                <> 
-                 {/* Use React.Fragment to wrap multiple sibling elements */}
+              {resumeData && (
+                <>
                   {/* Contact Info */}
                   <div className="space-y-4">
                     <h4 className="font-bold text-gray-800 dark:text-white text-lg flex items-center gap-2"><UserCircle size={20} className="text-indigo-500"/> Contact Information</h4>
@@ -494,6 +493,10 @@ const ResumeBuilderView: React.FC<ResumeBuilderViewProps> = ({ profile, onSavePr
                       ))}
                     </div>
                   </div>
+                </>
+              )}
+            </div>
+            
             {/* Right Panel: Live Preview & ATS Dashboard */}
             <div className="p-8 bg-gray-50/50 dark:bg-slate-900/50 relative overflow-y-auto custom-scrollbar flex flex-col transition-colors">
               <h3 className="text-2xl font-bold text-gray-800 dark:text-white mb-6">Live Preview & ATS Score</h3>
@@ -578,9 +581,11 @@ const ResumeBuilderView: React.FC<ResumeBuilderViewProps> = ({ profile, onSavePr
                   )}
                 </div>
               </div>
-         </ProFeatureOverlay>
-     </div>
-  </div>
+            </div>
+          </div>
+        </ProFeatureOverlay>
+      </div>
+    </div>
   );
 };
 
