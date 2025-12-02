@@ -6,14 +6,16 @@ import { ResumeData, ExperienceItem, EducationItem, SkillItem, ProjectItem, Cert
 import { Briefcase, BookOpen, Lightbulb, Terminal, Award, Link as LinkIcon, Mail, Phone, MapPin, Github, Globe, FileText } from 'lucide-react';
 
 
+// FIX: Replaced JSX syntax with React.createElement to be compatible with a .ts file.
+// This resolves errors related to type checking and syntax parsing in TypeScript files that don't support TSX.
 const SectionIcon: React.FC<{ type: ResumeSection['type'], size?: number | string, className?: string }> = ({ type, size, className }) => {
   switch (type) {
-    case 'experience': return <Briefcase size={size} className={className}/>;
-    case 'education': return <BookOpen size={size} className={className}/>;
-    case 'skills': return <Lightbulb size={size} className={className}/>;
-    case 'projects': return <Terminal size={size} className={className}/>;
-    case 'certifications': return <Award size={size} className={className}/>;
-    case 'awards': return <Award size={size} className={className}/>;
+    case 'experience': return React.createElement(Briefcase, { size, className });
+    case 'education': return React.createElement(BookOpen, { size, className });
+    case 'skills': return React.createElement(Lightbulb, { size, className });
+    case 'projects': return React.createElement(Terminal, { size, className });
+    case 'certifications': return React.createElement(Award, { size, className });
+    case 'awards': return React.createElement(Award, { size, className });
     default: return null;
   }
 };
