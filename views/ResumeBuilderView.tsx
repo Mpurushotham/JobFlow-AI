@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { UserProfile, ResumeData, ResumeATSScore, SubscriptionTier, LogActionType, ContactInfo, ResumeSection, ExperienceItem, EducationItem, SkillItem, ProjectItem, CertificationItem, AwardItem } from '../types';
 import { useNotifications } from '../context/NotificationContext';
@@ -334,7 +332,8 @@ const ResumeBuilderView: React.FC<ResumeBuilderViewProps> = ({ profile, onSavePr
                             <input type="text" value={item.dates} onChange={e => { const updated = [...(section.content as ProjectItem[])]; updated[itemIndex].dates = e.target.value; updateSectionContent(sectionIndex, updated); }} placeholder="Dates (e.g., Jan 2023 - Jun 2023)" className={commonInputClasses}/>
                             <input type="text" value={item.link || ''} onChange={e => { const updated = [...(section.content as ProjectItem[])]; updated[itemIndex].link = e.target.value; updateSectionContent(sectionIndex, updated); }} placeholder="Project Link (Optional)" className={commonInputClasses}/>
                             <textarea value={item.description} onChange={e => { const updated = [...(section.content as ProjectItem[])]; updated[itemIndex].description = e.target.value; updateSectionContent(sectionIndex, updated); }} placeholder="Description" rows={3} className={commonTextareaClasses}/>
-                            <textarea value={item.bulletPoints?.join('\n- ') || ''} onChange={e => { const updated = [...(section.content as ProjectItem[])]; updated[itemIndex].bulletPoints = e.target.value.split('\n- ').filter(Boolean).map(s => s.trim()); updateSectionContent(sectionIndex, updated); }} placeholder="Bullet points (one per line, starting with -)" rows={3} className={commonTextareaClasses}/>
+                            <textarea value={item.bulletPoints?.join('\n- ') || ''} onChange={e => { const updated = [...(section.content as ProjectItem[])]; updated[itemIndex].bulletPoints = e.target.value.split('\n- ').filter(Boolean).map(s => s.trim()); updateSectionContent(sectionIndex, updated);
+                            }} placeholder="Bullet points (one per line, starting with -)" rows={3} className={commonTextareaClasses}/>
                             <button onClick={() => {
                                 const updated = (section.content as ProjectItem[]).filter((_,idx) => idx !== itemIndex); updateSectionContent(sectionIndex, updated);
                             }} className="absolute top-2 right-2 p-1 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/20 rounded-full" title="Remove project"><Trash2 size={16}/></button>
@@ -582,7 +581,6 @@ const ResumeBuilderView: React.FC<ResumeBuilderViewProps> = ({ profile, onSavePr
               </div>
             </div>
           </ProFeatureOverlay>
-        </div>
       </div>
     </div>
   );
