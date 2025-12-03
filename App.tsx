@@ -13,6 +13,7 @@ import { NotificationProvider, useNotifications } from './context/NotificationCo
 import { Toast } from './components/Toast';
 import { Sidebar } from './components/Sidebar';
 import { Footer } from './components/Footer';
+import { AddJobModal } from './components/AddJobModal';
 
 // Lazy load views for code splitting
 const WelcomeView = lazy(() => import('./views/WelcomeView'));
@@ -50,6 +51,7 @@ const AppContent: React.FC<{
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [globalWeather, setGlobalWeather] = useState<{ city: string; description: string; temperature: number; country: string } | null>(null);
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
+  const [isAddJobModalOpen, setIsAddJobModalOpen] = useState(false);
   
   const { addNotification } = useNotifications();
 
@@ -67,7 +69,6 @@ const AppContent: React.FC<{
   const refetchGlobalWeather = useCallback(async (force = false) => {
     if ((globalWeather && !force) || isFetchingLocation) return;
     setIsFetchingLocation(true);
-    // Removed toast for "Attempting to fetch location" to reduce noise
     logService.log(currentUser, LogActionType.GEOLOCATION_FETCH, 'Attempting to fetch geolocation for weather.', 'info');
     navigator.geolocation.getCurrentPosition(
       async (position) => {
@@ -75,26 +76,23 @@ const AppContent: React.FC<{
           const weather = await geminiService.getWeatherByCoords(position.coords.latitude, position.coords.longitude, currentUser);
           if (weather) {
             setGlobalWeather(weather);
-            // addNotification(`Weather updated for ${weather.city}`, 'success');
             logService.log(currentUser, LogActionType.GEOLOCATION_FETCH, `Weather fetched for ${weather.city}`, 'info');
           }
         } catch (error: any) {
           if (error.message !== 'RATE_LIMIT_EXCEEDED' && error.message !== 'OFFLINE') {
-            // addNotification('Failed to fetch weather.', 'error');
+            logService.log(currentUser, LogActionType.ERROR_OCCURRED, `Failed to fetch weather: ${error.message}`, 'error');
           }
-          logService.log(currentUser, LogActionType.ERROR_OCCURRED, `Failed to fetch weather: ${error.message}`, 'error');
         } finally {
           setIsFetchingLocation(false);
         }
       },
       (error) => {
         setIsFetchingLocation(false);
-        // addNotification('Could not get location for weather.', 'info');
         logService.log(currentUser, LogActionType.ERROR_OCCURRED, `Geolocation permission denied or failed: ${error.message}`, 'warn');
       },
       { timeout: 10000 }
     );
-  }, [globalWeather, isFetchingLocation, currentUser, addNotification]);
+  }, [globalWeather, isFetchingLocation, currentUser]);
 
   useEffect(() => {
     refetchGlobalWeather();
@@ -106,16 +104,18 @@ const AppContent: React.FC<{
   };
 
   const selectedJob = jobs.find(j => j.id === selectedJobId) || null;
+  
+  const openAddJobModal = () => setIsAddJobModalOpen(true);
 
   const renderView = () => {
     if (!profile) {
       return <div className="p-8">Loading profile...</div>;
     }
     switch (view) {
-      case 'HOME': return <HomeView profile={profile} jobs={jobs} onNavigate={setView} onAddJob={() => {}} />;
+      case 'HOME': return <HomeView profile={profile} jobs={jobs} onNavigate={setView} onAddJob={openAddJobModal} />;
       case 'PROFILE': return <ProfileView profile={profile} onSave={handleSaveProfile} currentUser={currentUser} setView={setView} />;
       case 'JOB_SEARCH': return <JobSearchView onAddJobFound={async (job) => { await storageService.saveJob(currentUser, job); loadUserData(); }} profile={profile} subscriptionTier={subscriptionTier} currentUser={currentUser} />;
-      case 'JOBS': return <JobsView jobs={jobs} onSelectJob={(j) => { setSelectedJobId(j.id); setView('WORKSPACE'); }} onAddJob={() => {}} onDeleteJob={async (id) => { await storageService.deleteJob(id); loadUserData(); }} onUpdateJob={async (job) => { await storageService.saveJob(currentUser, job); loadUserData(); }} />;
+      case 'JOBS': return <JobsView jobs={jobs} onSelectJob={(j) => { setSelectedJobId(j.id); setView('WORKSPACE'); }} onAddJob={openAddJobModal} onDeleteJob={async (id) => { await storageService.deleteJob(id); loadUserData(); }} onUpdateJob={async (job) => { await storageService.saveJob(currentUser, job); loadUserData(); }} />;
       case 'TRACKER': return <TrackerView jobs={jobs} onSelectJob={(j) => { setSelectedJobId(j.id); setView('WORKSPACE'); }} />;
       case 'INTERVIEWS': return <InterviewsView jobs={jobs} onSelectJob={(j) => { setSelectedJobId(j.id); setView('WORKSPACE'); }} />;
       case 'ANALYTICS': return <AnalyticsView jobs={jobs} />;
@@ -124,7 +124,7 @@ const AppContent: React.FC<{
       case 'AI_COACH': return <AICoachView profile={profile} subscriptionTier={subscriptionTier} currentUser={currentUser} />;
       case 'ADMIN': return isAdmin ? <AdminView currentUserSubscriptionTier={subscriptionTier} currentUser={currentUser} /> : null;
       case 'ONLINE_PRESENCE': return <OnlinePresenceView profile={profile} subscriptionTier={subscriptionTier} currentUser={currentUser} />;
-      case 'PRICING': return <PricingView currentTier={subscriptionTier} currentUser={currentUser} onUpgrade={() => {}} onBackToHome={() => setView('HOME')} />;
+      case 'PRICING': return <PricingView currentTier={subscriptionTier} currentUser={currentUser} onUpgrade={onUpgrade} onBackToHome={() => setView('HOME')} />;
       case 'SECURITY_PRIVACY': return <SecurityPrivacyView />;
       case 'RESUME_BUILDER': return <ResumeBuilderView profile={profile} onSaveProfile={handleSaveProfile} currentUser={currentUser} subscriptionTier={subscriptionTier} />;
       default: return <div>Not found</div>;
@@ -145,12 +145,14 @@ const AppContent: React.FC<{
           </Suspense>
         </main>
       </div>
+      <AddJobModal isOpen={isAddJobModalOpen} onClose={() => setIsAddJobModalOpen(false)} onSave={async (job) => { await storageService.saveJob(currentUser, job); loadUserData(); }} currentUser={currentUser} />
     </div>
   );
 };
 
 const MainApplicationWrapper = () => {
-  const { isAuthenticated, isAdmin, currentUser, isLoading, login, logout } = useAuth();
+  // FIX: Call useAuth() only once and destructure all needed values
+  const { isAuthenticated, isAdmin, currentUser, subscriptionTier, isLoading, login, logout } = useAuth();
   const [authFlowState, setAuthFlowState] = useState<'welcome' | 'login' | 'signup' | 'pricing' | 'security_privacy' | 'forgot_credentials' | 'otp_verify'>('welcome');
   const [view, setView] = useState<ViewState>('HOME');
   const [isAppLoading, setIsAppLoading] = useState(true);
@@ -197,7 +199,7 @@ const MainApplicationWrapper = () => {
         setView(targetView);
       } else {
         if (targetView === 'PRICING' || targetView === 'SECURITY_PRIVACY') {
-          setView(targetView);
+          setAuthFlowState(targetView === 'PRICING' ? 'pricing' : 'security_privacy');
         } else {
           setAuthFlowState('login');
         }
@@ -232,7 +234,13 @@ const MainApplicationWrapper = () => {
     return <Suspense fallback={<div>Loading...</div>}><WelcomeView onNavigateToAuth={onNavigateToAuth} /></Suspense>;
   }
 
-  return <AppContent currentUser={currentUser!} isAdmin={isAdmin} subscriptionTier={useAuth().subscriptionTier!} onLogout={handleLogout} onUpgrade={() => setView('PRICING')} setView={setView} view={view} />;
+  // FIX: Add a safety check to ensure user data is loaded before rendering AppContent
+  if (!currentUser || !subscriptionTier) {
+    return <div className="flex items-center justify-center h-screen">Loading user session...</div>;
+  }
+
+  // FIX: Pass destructured values and remove second useAuth() call and non-null assertions
+  return <AppContent currentUser={currentUser} isAdmin={isAdmin} subscriptionTier={subscriptionTier} onLogout={handleLogout} onUpgrade={() => setView('PRICING')} setView={setView} view={view} />;
 };
 
 const App = () => {
