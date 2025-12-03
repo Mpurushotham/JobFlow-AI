@@ -1,5 +1,6 @@
 
 
+
 import React, { useState, useRef } from 'react';
 import { UserProfile, MasterResumeFitResult, SubscriptionTier, AppBackupData, LogActionType, ResumeData, ViewState } from '../types';
 import { UserCircle, Mail, Phone, MapPin, Link as LinkIcon, Briefcase, FileText, Sparkles, Save, Edit2, Github, Globe, RefreshCcw, Target, CheckCircle, XCircle, Info, TrendingUp, UploadCloud, DownloadCloud, Database, FileCheck, ArrowRight } from 'lucide-react'; 
@@ -11,6 +12,8 @@ import { isValidEmail, isValidPhoneNumber } from '../utils/validationUtils';
 import { storageService } from '../services/storageService'; // Import storageService
 import { useAuth } from '../context/AuthContext'; // Import useAuth to get currentUser
 import { logService } from '../services/logService'; // Import logService
+// FIX: Import convertResumeDataToMarkdown from utils
+import { convertResumeDataToMarkdown } from '../utils/resumeMarkdown';
 
 interface ProfileViewProps {
   profile: UserProfile;
@@ -217,7 +220,8 @@ const ProfileView: React.FC<ProfileViewProps> = ({ profile, onSave, currentUser,
 
     setAnalyzingFit(true);
     try {
-      const resumeForAnalysis = formData.structuredResume ? geminiService.convertResumeDataToMarkdown(formData.structuredResume) : formData.resumeContent;
+      // FIX: Use the imported convertResumeDataToMarkdown function directly.
+      const resumeForAnalysis = formData.structuredResume ? convertResumeDataToMarkdown(formData.structuredResume) : formData.resumeContent;
       const result = await geminiService.analyzeMasterResumeFit(resumeForAnalysis, formData.targetJobDescription, currentUser);
       const updatedFormData = { ...formData, masterResumeFit: JSON.stringify(result) };
       setFormData(updatedFormData);

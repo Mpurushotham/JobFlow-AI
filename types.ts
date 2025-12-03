@@ -1,5 +1,4 @@
 
-
 export enum JobStatus {
   WISHLIST = 'WISHLIST',
   APPLIED = 'APPLIED',
@@ -39,22 +38,13 @@ export interface Job {
   coverLetter?: string;
   interviewPrep?: InterviewQA[];
   activity?: JobActivity[];
-  username?: string; // New: Added for IndexedDB indexing
+  username: string;
 }
 
 export interface InterviewQA {
   question: string;
   answer: string;
   tip: string;
-}
-
-export interface ParsedResume {
-  fullName?: string;
-  email?: string;
-  phone?: string;
-  skills?: string[];
-  experienceSummary?: string;
-  educationSummary?: string;
 }
 
 // NEW: Resume Data for Builder
@@ -70,7 +60,7 @@ export interface ContactInfo {
 }
 
 export interface ExperienceItem {
-  id: string; // Unique ID for keying in React lists
+  id: string;
   company: string;
   title: string;
   location: string;
@@ -79,7 +69,7 @@ export interface ExperienceItem {
 }
 
 export interface EducationItem {
-  id: string; // Unique ID
+  id: string;
   degree: string;
   institution: string;
   location: string;
@@ -88,13 +78,13 @@ export interface EducationItem {
 }
 
 export interface SkillItem {
-  id: string; // Unique ID
+  id: string;
   category: string;
-  skills: string[]; // e.g., ["Python", "JavaScript"]
+  skills: string[];
 }
 
 export interface ProjectItem {
-  id: string; // Unique ID
+  id: string;
   name: string;
   dates: string;
   description: string;
@@ -103,7 +93,7 @@ export interface ProjectItem {
 }
 
 export interface CertificationItem {
-  id: string; // Unique ID
+  id: string;
   name: string;
   issuer: string;
   date: string;
@@ -111,7 +101,7 @@ export interface CertificationItem {
 }
 
 export interface AwardItem {
-  id: string; // Unique ID
+  id: string;
   name: string;
   issuer: string;
   date: string;
@@ -119,10 +109,10 @@ export interface AwardItem {
 }
 
 export interface ResumeSection {
-  id: string; // Unique ID for section management
+  id: string;
   title: string;
   content: string | ExperienceItem[] | EducationItem[] | SkillItem[] | ProjectItem[] | CertificationItem[] | AwardItem[];
-  order: number; // For custom section ordering
+  order: number;
   type: 'text' | 'experience' | 'education' | 'skills' | 'projects' | 'certifications' | 'awards';
 }
 
@@ -131,7 +121,6 @@ export interface ResumeData {
   summary: string;
   sections: ResumeSection[];
 }
-
 
 export interface MasterResumeFitResult {
   score: number;
@@ -172,11 +161,10 @@ export interface UserProfile {
   location?: string;
   resumeContent: string;
   targetRoles: string;
-  // parsedData?: ParsedResume; // REMOVE: Replaced by structuredResume
-  structuredResume?: ResumeData | null; // NEW: Structured resume data for the builder
-  targetJobDescription?: string; // New: For master resume fit analysis
-  masterResumeFit?: string; // New: JSON stringified MasterResumeFitResult
-  subscriptionTier?: SubscriptionTier; // New: User's subscription tier
+  structuredResume?: ResumeData | null;
+  targetJobDescription?: string;
+  masterResumeFit?: string;
+  subscriptionTier?: SubscriptionTier;
 }
 
 export interface ResumeATSScore {
@@ -185,7 +173,7 @@ export interface ResumeATSScore {
   atsFriendly: { feedback: string; pass: boolean; };
   actionVerbs: { feedback: string; pass: boolean; };
   quantifiableMetrics: { feedback: string; pass: boolean; };
-  keywords: { feedback: string; pass: boolean; }; // Added missing keywords prop
+  keywords: { feedback: string; pass: boolean; };
   clarity: { feedback: string; pass: boolean; };
 }
 
@@ -195,10 +183,10 @@ export interface SearchResult {
   location: string;
   url: string;
   summary: string;
-  postedDate?: string; // NEW: Date the job was posted
-  source?: string;     // NEW: Source of the job (e.g., LinkedIn, Indeed)
-  matchScore?: number; // Added for on-demand analysis
-  analysis?: string;    // Added for on-demand analysis (JSON stringified)
+  postedDate?: string;
+  source?: string;
+  matchScore?: number;
+  analysis?: string;
 }
 
 export interface SearchFilters {
@@ -234,12 +222,10 @@ export interface ResumeGrade {
   actionVerbs: { feedback: string; pass: boolean; };
   quantifiableMetrics: { feedback: string; pass: boolean; };
   clarity: { feedback: string; pass: boolean; };
-  keywords: { feedback: string; pass: boolean; }; // Added missing keywords prop
+  keywords: { feedback: string; pass: boolean; };
   summary: string;
 }
 
-
-// Represents a user account in the system
 export interface User {
   username: string;
   email: string;
@@ -249,11 +235,10 @@ export interface User {
   salt: string;
   createdDate: number;
   lastLogin?: number;
-  subscriptionTier: SubscriptionTier; // New: User's subscription tier
-  accountStatus: 'valid' | 'invalid'; // New: User account status
+  subscriptionTier: SubscriptionTier;
+  accountStatus: 'valid' | 'invalid';
 }
 
-// New: For AI Email Assistant
 export enum EmailPurpose {
   PROFESSIONAL_REWRITE = 'Professional Rewrite',
   COLD_EMAIL = 'Cold Email',
@@ -264,22 +249,20 @@ export enum EmailPurpose {
   SALES_EMAIL = 'Sales Email',
 }
 
-// New: For local data backup/restore
 export interface AppBackupData {
   users: User[];
   profiles: Record<string, UserProfile>;
   jobs: Record<string, Job[]>;
   recentSearches: RecentSearchQuery[];
-  activityLogs: AppActivityLogEntry[]; // NEW: For activity log backup
+  activityLogs: AppActivityLogEntry[];
 }
 
-// New: For application activity logging
 export enum LogActionType {
   USER_SIGNUP = 'User Signed Up',
   USER_LOGIN = 'User Logged In',
   USER_LOGOUT = 'User Logged Out',
-  USER_LOGIN_FAILED = 'User Login Failed', // NEW: Added login failed
-  USER_INACTIVE_LOGIN_ATTEMPT = 'User Inactive Account Login Attempt', // NEW: Added inactive account login attempt
+  USER_LOGIN_FAILED = 'User Login Failed',
+  USER_INACTIVE_LOGIN_ATTEMPT = 'User Inactive Account Login Attempt',
   JOB_ADD = 'Job Added',
   JOB_UPDATE = 'Job Updated',
   JOB_DELETE = 'Job Deleted',
@@ -296,19 +279,19 @@ export enum LogActionType {
   NETWORKING_MESSAGE_DRAFT = 'Networking Message Drafted (AI)',
   EMAIL_COMPOSE = 'Email Composed (AI)',
   RESUME_GRADE = 'Resume Graded (AI)',
-  RESUME_BUILDER_OPEN = 'Resume Builder Opened', // NEW
-  RESUME_BUILDER_AI_AUTOFILL = 'Resume Builder Auto-Filled (AI)', // NEW
-  RESUME_BUILDER_SECTION_EDIT = 'Resume Builder Section Edited', // NEW
-  RESUME_ATS_EVALUATED = 'ATS Score Evaluated (AI)', // NEW
-  RESUME_DOWNLOAD = 'Resume Downloaded', // NEW
-  RESUME_DOWNLOAD_DOCX = 'Resume Downloaded (DOCX)', // NEW
+  RESUME_BUILDER_OPEN = 'Resume Builder Opened',
+  RESUME_BUILDER_AI_AUTOFILL = 'Resume Builder Auto-Filled (AI)',
+  RESUME_BUILDER_SECTION_EDIT = 'Resume Builder Section Edited',
+  RESUME_ATS_EVALUATED = 'ATS Score Evaluated (AI)',
+  RESUME_DOWNLOAD = 'Resume Downloaded',
+  RESUME_DOWNLOAD_DOCX = 'Resume Downloaded (DOCX)',
   SUBSCRIPTION_CHANGE = 'Subscription Tier Changed',
   ADMIN_DATA_CLEAR = 'Admin Cleared All Data',
   ADMIN_DATA_EXPORT = 'Admin Exported All Data',
   ADMIN_DATA_IMPORT = 'Admin Imported All Data',
   ADMIN_USER_CRED_RESET = 'Admin Reset User Credentials',
-  ADMIN_USER_STATUS_CHANGE = 'Admin Changed User Status', // NEW: Added change user status
-  ADMIN_LOGS_CLEAR = 'Admin Cleared Activity Logs', // NEW: Added clear activity logs
+  ADMIN_USER_STATUS_CHANGE = 'Admin Changed User Status',
+  ADMIN_LOGS_CLEAR = 'Admin Cleared Activity Logs',
   APP_INIT = 'Application Initialized',
   ERROR_OCCURRED = 'Error Occurred',
   OFFLINE_EVENT = 'Offline Mode Detected',
@@ -318,17 +301,17 @@ export enum LogActionType {
 }
 
 export interface AppActivityLogEntry {
-  id: string; // Unique ID (timestamp + random)
+  id: string;
   timestamp: number;
-  username: string | 'system' | 'guest'; // User who performed action or 'system' or 'guest'
+  username: string | 'system' | 'guest';
   actionType: LogActionType;
-  details: string; // Detailed description of the action
-  severity: 'info' | 'warn' | 'error' | 'debug'; // Log level
+  details: string;
+  severity: 'info' | 'warn' | 'error' | 'debug';
   metadata?: {
     ipAddress?: string;
     userAgent?: string;
     location?: string;
-    cookies?: string; // Capturing simulated or actual cookies/storage keys
+    cookies?: string;
     screenResolution?: string;
     url?: string;
   };

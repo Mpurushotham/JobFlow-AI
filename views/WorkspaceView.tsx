@@ -1,6 +1,7 @@
 
 
 
+
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, Building, MapPin, Edit3, ExternalLink, Target, FileText, MessageSquare, UserCircle, Sparkles, CheckCircle, XCircle, FileDown, History, StickyNote, CalendarPlus, Send, Trophy, Paperclip, XOctagon, Plus, RefreshCw, Info, TrendingUp, CalendarDays } from 'lucide-react'; // Added CalendarDays for Google Calendar
 import ReactMarkdown from 'react-markdown';
@@ -146,7 +147,8 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
 
     setLoading(true);
     try {
-      const tailored = await geminiService.tailorResume(profile.resumeContent, job.description, profile, currentUser);
+      // FIX: Incorrect arguments. Pass job.description, profile, and currentUser.
+      const tailored = await geminiService.tailorResume(job.description, profile, currentUser);
       onUpdateJob({ ...job, tailoredResume: tailored });
       addNotification('Resume tailored successfully!', 'success');
       logService.log(currentUser, LogActionType.RESUME_TAILOR, `Resume tailored for "${job.title}".`, 'info');
@@ -183,12 +185,11 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
 
     setLoading(true);
     try {
+      // FIX: Incorrect arguments. Pass job.description, job.company, profile, and currentUser.
       const letter = await geminiService.generateCoverLetter(
-        profile.resumeContent, 
         job.description, 
         job.company,
-        profile.phone,
-        profile.email,
+        profile,
         currentUser
       );
       onUpdateJob({ ...job, coverLetter: letter });
@@ -227,7 +228,8 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = ({
 
     setLoading(true);
     try {
-      const prep = await geminiService.generateInterviewPrep(profile.resumeContent, job.description, currentUser);
+      // FIX: Incorrect arguments. Pass job.description, profile, and currentUser.
+      const prep = await geminiService.generateInterviewPrep(job.description, profile, currentUser);
       onUpdateJob({ ...job, interviewPrep: prep });
       addNotification('Interview prep guide is ready!', 'success');
       logService.log(currentUser, LogActionType.INTERVIEW_PREP_GENERATE, `Interview prep generated for "${job.title}".`, 'info');

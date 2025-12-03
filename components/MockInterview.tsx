@@ -1,6 +1,7 @@
 
 
 
+
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Mic, Send, User, RefreshCcw, Info, TrendingUp, ChevronDown, ChevronUp } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -75,8 +76,8 @@ export const MockInterview: React.FC<MockInterviewProps> = ({ profile, subscript
 
         setLoading(true);
         try {
-            // FIX: Pass currentUser to geminiService.analyzeInterviewAnswer
-            const result = await geminiService.analyzeInterviewAnswer(currentQuestion, transcript, profile.resumeContent, currentUser);
+            // FIX: Pass the full profile object instead of just resumeContent string
+            const result = await geminiService.analyzeInterviewAnswer(currentQuestion, transcript, profile, currentUser);
             setFeedback(result);
             addNotification("Answer analysis complete!", "success");
         } catch (e: any) {
@@ -90,7 +91,7 @@ export const MockInterview: React.FC<MockInterviewProps> = ({ profile, subscript
         } finally {
             setLoading(false);
         }
-    }, [profile.resumeContent, isAIPro, transcript, currentQuestion, addNotification, isOffline, currentUser]); // Dependencies for useCallback
+    }, [profile, isAIPro, transcript, currentQuestion, addNotification, isOffline, currentUser]); // Dependencies for useCallback
 
     useEffect(() => {
         if (!recognition || !isAIPro || isOffline) return; // Only enable if AI Pro and online

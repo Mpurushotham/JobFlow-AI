@@ -1,6 +1,7 @@
 
 
 
+
 import React, { useState } from 'react';
 import { Plus, X, Eraser } from 'lucide-react';
 import { Job, JobStatus, LogActionType } from '../types';
@@ -46,6 +47,8 @@ export const AddJobModal: React.FC<AddJobModalProps> = ({ isOpen, onClose, onSav
       country,
       availability,
       relocation,
+      // FIX: Add username to satisfy the Job type
+      username: currentUser,
       activity: [{
         id: `activity-${now}`,
         date: now,

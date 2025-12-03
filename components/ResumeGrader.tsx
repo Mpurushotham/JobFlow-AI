@@ -1,6 +1,7 @@
 
 
 
+
 import React, { useState, useRef } from 'react';
 import { Sparkles, FileHeart, CheckCircle, XCircle, RefreshCcw, Info, TrendingUp } from 'lucide-react';
 // FIX: Removed EmailPurpose as it's not used here.
@@ -46,8 +47,8 @@ export const ResumeGrader: React.FC<ResumeGraderProps> = ({ profile, subscriptio
 
         setLoading(true);
         try {
-            // FIX: Pass currentUser to geminiService.gradeResume
-            const result = await geminiService.gradeResume(profile.resumeContent, currentUser);
+            // FIX: Pass the full profile object instead of just resumeContent
+            const result = await geminiService.gradeResume(profile, currentUser);
             setGrade(result);
             addNotification("Resume analysis complete!", "success");
             if (!isAIPro) {

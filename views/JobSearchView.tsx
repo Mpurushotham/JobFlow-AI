@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 // FIX: Added RefreshCcw import from 'lucide-react'.
 import { Search, MapPin, Building, ExternalLink, Plus, RotateCcw, Factory, Briefcase, AlertTriangle, ChevronLeft, ChevronRight, Sparkles, CheckCircle, XCircle, Info, RefreshCcw, TrendingUp } from 'lucide-react';
@@ -619,6 +620,8 @@ const JobSearchView: React.FC<JobSearchViewProps> = ({ onAddJobFound, profile, s
                                 source: res.source || 'AI Search',
                                 matchScore: res.matchScore, // Carry over analysis if already done
                                 analysis: res.analysis,
+                                // FIX: Add username to satisfy the Job type
+                                username: currentUser,
                               });
                               addNotification(`${res.title} added to your board!`, 'success');
                               logService.log(currentUser, LogActionType.JOB_ADD, `Job "${res.title}" added from search results.`, 'info');

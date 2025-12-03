@@ -1,10 +1,7 @@
 
 
 import { Job, UserProfile, RecentSearchQuery, User, AppBackupData, AppActivityLogEntry } from '../types';
-import { indexedDbService } from './indexedDbService'; // Import new IndexedDB service
-
-// Define keys for localStorage items that are NOT migrated to IndexedDB (e.g., migration flag)
-const LOCAL_STORAGE_MIGRATED_KEY = 'jobflow_idb_migrated';
+import { indexedDbService } from './indexedDbService';
 
 export const storageService = {
   // === User-specific functions ===
@@ -15,9 +12,8 @@ export const storageService = {
 
   async saveJob(username: string, job: Job): Promise<void> {
     if (!username) return;
-    // FIX: Add username to the job object before saving for IndexedDB indexing, and pass username to indexedDbService.saveJob
-    const jobWithUsername = { ...job, username };
-    return indexedDbService.saveJob(jobWithUsername, username);
+    // FIX: Pass job and username as separate arguments to match indexedDbService.saveJob signature.
+    return indexedDbService.saveJob(job, username);
   },
 
   async deleteJob(id: string): Promise<void> {
@@ -25,43 +21,39 @@ export const storageService = {
   },
 
   async getProfile(username: string): Promise<UserProfile | undefined> {
-    if (!username) return undefined; // Return undefined if no username
+    if (!username) return undefined;
     const profile = await indexedDbService.getProfile(username);
-    // Return empty profile with username if not found, to ensure consistency
     return profile || { name: username, resumeContent: '', targetRoles: '' };
   },
 
   async saveProfile(username: string, profile: UserProfile): Promise<void> {
     if (!username) return;
-    return indexedDbService.saveProfile(profile);
+    return indexedDbService.saveProfile({ ...profile, name: username });
   },
 
   async getRecentSearches(): Promise<RecentSearchQuery[]> {
-    // FIX: Await the promise from indexedDbService.getRecentSearches()
     const searches = await indexedDbService.getRecentSearches();
-    // Sort by timestamp for consistency, assuming `saveRecentSearch` adds timestamp
     return searches.sort((a, b) => b.timestamp - a.timestamp);
   },
 
   async saveRecentSearch(query: string): Promise<void> {
     let searches = await indexedDbService.getRecentSearches();
-    // Remove existing entry if query is the same to update timestamp
     searches = searches.filter(s => s.query.toLowerCase() !== query.toLowerCase());
     
-    // Add new search
     const newSearch = { query, timestamp: Date.now() };
-    searches.unshift(newSearch); // Add to the beginning
+    searches.unshift(newSearch);
 
-    // Keep only the latest 5
     if (searches.length > 5) {
       searches = searches.slice(0, 5);
     }
     
-    // Save all current searches back to IndexedDB
-    await Promise.all(searches.map(s => indexedDbService.saveRecentSearch(s)));
+    await indexedDbService.clearRecentSearches();
+    for (const search of searches) {
+      await indexedDbService.saveRecentSearch(search);
+    }
   },
 
-  // === Auth-related (User) functions - now directly use indexedDbService ===
+  // === Auth-related (User) functions ===
   async getAllUsers(): Promise<User[]> {
       return indexedDbService.getUsers();
   },
@@ -72,9 +64,9 @@ export const storageService = {
 
   async deleteUser(username: string): Promise<void> {
       await indexedDbService.deleteUser(username);
-      await indexedDbService.deleteProfile(username); // Also delete profile data
-      await indexedDbService.deleteAllJobsForUser(username); // And associated jobs
-      await indexedDbService.deleteAllActivityLogsForUser(username); // Delete associated activity logs
+      await indexedDbService.deleteProfile(username);
+      await indexedDbService.deleteAllJobsForUser(username);
+      await indexedDbService.deleteAllActivityLogsForUser(username);
   },
 
   // === Admin functions ===
@@ -91,7 +83,6 @@ export const storageService = {
   },
 
   async deleteAllData(): Promise<void> {
-    // Note: The admin account will be the only one remaining after this operation.
     await indexedDbService.clearAllData();
   },
 
@@ -102,13 +93,13 @@ export const storageService = {
     const user = (await indexedDbService.getUsers()).find(u => u.username === username);
     const profile = await indexedDbService.getProfile(username);
     const jobs = await indexedDbService.getJobsForUser(username);
-    const recentSearches = await indexedDbService.getRecentSearches(); // Global recent searches
-    const activityLogs = (await indexedDbService.getLogEntries()).filter(log => log.username === username || log.username === 'system' || log.username === 'guest'); // Only export logs relevant to user/system/guest
+    const recentSearches = await indexedDbService.getRecentSearches();
+    const activityLogs = (await indexedDbService.getLogEntries()).filter(log => log.username === username || log.username === 'system' || log.username === 'guest');
 
-    if (!user || !profile) return null; // Must have at least user and profile
+    if (!user || !profile) return null;
 
     return {
-      users: [user], // Only export data for the current user
+      users: [user],
       profiles: { [username]: profile },
       jobs: { [username]: jobs },
       recentSearches: recentSearches,
@@ -142,8 +133,6 @@ export const storageService = {
       throw new Error('Invalid backup data format.');
     }
 
-    // For importing, we assume it's importing *one user's data* into the current logged-in session.
-    // If multiple users are in the backup, we take the one whose username matches currentUsername.
     const userToImport = data.users.find(u => u.username === currentUsername);
     if (!userToImport) {
         throw new Error(`Backup does not contain data for user '${currentUsername}'.`);
@@ -156,22 +145,19 @@ export const storageService = {
         throw new Error(`Backup data for profile for user '${currentUsername}' is missing.`);
     }
 
-    // Overwrite existing data for the current user
     await indexedDbService.saveUser(userToImport);
     await indexedDbService.saveProfile(profileToImport);
-    await indexedDbService.deleteAllJobsForUser(currentUsername); // Clear old jobs
+    await indexedDbService.deleteAllJobsForUser(currentUsername);
     for (const job of jobsToImport) {
-        // FIX: Pass username to indexedDbService.saveJob
-        await indexedDbService.saveJob(job, currentUsername); // Use saveJob which adds username internally
+        // FIX: Pass job and username as separate arguments to match indexedDbService.saveJob signature.
+        await indexedDbService.saveJob(job, currentUsername);
     }
     
-    // Recent searches are global, replace them
     await indexedDbService.clearRecentSearches();
     for (const search of data.recentSearches) {
         await indexedDbService.saveRecentSearch(search);
     }
 
-    // Clear and import activity logs
     await indexedDbService.clearActivityLogs();
     for (const logEntry of data.activityLogs) {
         await indexedDbService.saveLogEntry(logEntry);
@@ -183,18 +169,12 @@ export const storageService = {
       throw new Error('Invalid backup data format for admin import.');
     }
 
-    await indexedDbService.clearAllData(); // Clear everything first
+    await indexedDbService.clearAllData();
     
-    // Re-add the admin user if it exists and is not in the backup, otherwise use the backup's admin.
-    // For this context, the admin is a special case to ensure the system is not locked out.
-    // However, `clearAllData` clears the admin user too.
-    // The safest approach is to ensure a backup will cover the admin, or the user manually manages it.
-
-    // Populate with backup data
     await indexedDbService.populateAllData({
       users: data.users,
-      profiles: Object.values(data.profiles), // IndexedDB profile store takes UserProfile objects directly
-      jobs: data.jobs ? Object.values(data.jobs).flat() : [], // Flatten jobs from map
+      profiles: Object.values(data.profiles),
+      jobs: data.jobs ? Object.values(data.jobs).flat() : [],
       recentSearches: data.recentSearches,
       activityLogs: data.activityLogs, 
     });
