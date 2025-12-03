@@ -4,33 +4,35 @@ import ReactMarkdown from 'react-markdown';
 
 const SecurityPrivacyView: React.FC = () => {
   const content = `
-## Your Data, Your Device: A Privacy-First Approach
+## **Your Data, Your Device: A Privacy-First Approach**
+----
 
 JobFlow AI is designed with your privacy as a top priority. Unlike most online applications, **your personal and sensitive career data never leaves your device.** Everything is stored locally in your web browser.
 
 ---
 
-### Our Client-Side Security & Privacy Measures
+### 1. Our Client-Side Security & Privacy Measures:
+---
 
 Because JobFlow AI operates entirely within your browser without a backend server, we implement the following measures to protect your data locally:
 
 *   **Local Data Storage: Zero Server-Side Storage**
-    *   **Benefit:** Your profile, master resume, job applications, generated cover letters, tailored resumes, interview prep guides, and activity logs are stored *exclusively* in your browser's [Local Storage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage) and [Session Storage](https://developer.mozilla.org/en-US/docs/Web/API/Window/sessionStorage).
-    *   **Implication:** No data is transmitted to any cloud servers controlled by JobFlow AI or third parties for storage. This inherently removes many common server-side breach risks.
+*   **Benefit:** Your profile, master resume, job applications, generated cover letters, tailored resumes, interview prep guides, and activity logs are stored *exclusively* in your browser's [Local Storage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage) and [Session Storage](https://developer.mozilla.org/en-US/docs/Web/API/Window/sessionStorage).
+*   **Implication:** No data is transmitted to any cloud servers controlled by JobFlow AI or third parties for storage. This inherently removes many common server-side breach risks.
 
 *   **Client-Side Authentication: Hashing & Local 2FA**
-    *   **Secure Credential Handling:** Your username, password, and 4-digit Personal Identification Number (PIN) are **never stored in plain text**. Instead, they are hashed using a client-side hashing function (\`simpleHash\`) combined with a unique, randomly generated \`salt\` for each user before being saved to Local Storage. This makes it significantly harder to reverse-engineer your credentials even if your local storage is inspected.
-    *   **Local Two-Factor Authentication (2FA):** The 4-digit PIN acts as an additional layer of security. To log in, you need both your password and your PIN, providing a local "something you know" factor beyond just a password.
-    *   **Session Management:** Your login session is managed in \`sessionStorage\`, which is automatically cleared when you close your browser tab or window. This ensures your session is not persistent and requires re-authentication for each new session, enhancing security against unauthorized access if you leave your device unattended.
+*   **Secure Credential Handling:** Your username, password, and 4-digit Personal Identification Number (PIN) are **never stored in plain text**. Instead, they are hashed using a client-side hashing function (\`simpleHash\`) combined with a unique, randomly generated \`salt\` for each user before being saved to Local Storage. This makes it significantly harder to reverse-engineer your credentials even if your local storage is inspected.
+*   **Local Two-Factor Authentication (2FA):** The 4-digit PIN acts as an additional layer of security. To log in, you need both your password and your PIN, providing a local "something you know" factor beyond just a password.
+*   **Session Management:** Your login session is managed in \`sessionStorage\`, which is automatically cleared when you close your browser tab or window. This ensures your session is not persistent and requires re-authentication for each new session, enhancing security against unauthorized access if you leave your device unattended.
 
 *   **API Key Management (Client-Side Exposure)**
-    *   The Google Gemini API key used for AI functionalities is configured as an environment variable (e.g., in Vercel) and injected into the client-side application at runtime. This prevents it from being hardcoded in the public source code.
-    *   **Limitation:** While not hardcoded, any API key used directly by a client-side application is ultimately visible in network requests via browser developer tools. We rely on Google's API usage policies and rate limits for managing access and preventing abuse.
+*   The Google Gemini API key used for AI functionalities is configured as an environment variable (e.g., in Vercel) and injected into the client-side application at runtime. This prevents it from being hardcoded in the public source code.
+*   **Limitation:** While not hardcoded, any API key used directly by a client-side application is ultimately visible in network requests via browser developer tools. We rely on Google's API usage policies and rate limits for managing access and preventing abuse.
 
 ---
 
-### Inherent Limitations & Risks (Client-Side Design)
-
+### 2. Inherent Limitations & Risks (Client-Side Design):
+----
 It's important to be transparent about the limitations that come with a purely client-side application:
 
 *   **Local Storage Vulnerabilities:**
@@ -42,35 +44,38 @@ It's important to be transparent about the limitations that come with a purely c
 
 ---
 
-### Focus Areas: Maximizing Local-First Capabilities for a Smooth User Experience
+### Focus Areas: Maximizing Local-First Capabilities for a Smooth User Experience:
+----
+
 
 Despite operating without a backend, JobFlow AI is meticulously designed to deliver a powerful, intuitive, and private user experience by leveraging cutting-edge frontend technologies and smart local data management. Our focus areas ensure a top-tier experience directly from your browser:
 
 *   **Robust Offline Functionality** <CloudOff size={20} className="text-indigo-500 inline-block align-bottom ml-2" />
-    *   All core application features, including data access, job tracking, and profile management, function seamlessly offline. You retain full productivity even without an internet connection.
-    *   AI features, while requiring an API call (and thus internet), are gracefully handled with clear messaging.
+*   All core application features, including data access, job tracking, and profile management, function seamlessly offline. You retain full productivity even without an internet connection.
+*   AI features, while requiring an API call (and thus internet), are gracefully handled with clear messaging.
 
 *   **Blazing-Fast Performance** <Zap size={20} className="text-yellow-500 inline-block align-bottom ml-2" />
-    *   With data stored locally, retrieval and processing are near-instantaneous. This eliminates network latency for fetching your jobs and profile, resulting in a highly responsive and fluid application feel.
+*   With data stored locally, retrieval and processing are near-instantaneous. This eliminates network latency for fetching your jobs and profile, resulting in a highly responsive and fluid application feel.
 
 *   **Intuitive & Engaging UI/UX** <LayoutDashboard size={20} className="text-purple-500 inline-block align-bottom ml-2" />
-    *   **Dynamic Kanban Board:** Visualize and manage your job applications with an interactive drag-and-drop board.
-    *   **Smart Job Search Filters:** Find relevant jobs quickly with comprehensive filtering options and recent search history.
-    *   **Real-time AI Tools:** Generate tailored resumes, compelling cover letters, and detailed interview guides on-demand, directly in your browser.
-    *   **AI Coach & Mock Interviews:** Engage in interactive sessions for resume grading and interview practice with immediate feedback.
+*   **Dynamic Kanban Board:** Visualize and manage your job applications with an interactive drag-and-drop board.
+*   **Smart Job Search Filters:** Find relevant jobs quickly with comprehensive filtering options and recent search history.
+*   **Real-time AI Tools:** Generate tailored resumes, compelling cover letters, and detailed interview guides on-demand, directly in your browser.
+*   **AI Coach & Mock Interviews:** Engage in interactive sessions for resume grading and interview practice with immediate feedback.
 
 *   **Personalized Experience** <Brush size={20} className="text-pink-500 inline-block align-bottom ml-2" />
-    *   **Adaptive Theming:** Seamlessly switch between light and dark modes to suit your preference, with settings persisted locally.
-    *   **Proactive Notifications:** Receive timely and relevant toast notifications for important actions and updates, enhancing usability.
+*   **Adaptive Theming:** Seamlessly switch between light and dark modes to suit your preference, with settings persisted locally.
+*   **Proactive Notifications:** Receive timely and relevant toast notifications for important actions and updates, enhancing usability.
 
 *   **Data Portability & Control** <Download size={20} className="text-emerald-500 inline-block align-bottom ml-2" />
-    *   Easily export your entire job tracking data to CSV for external analysis or backup.
-    *   Download AI-generated documents (resumes, cover letters) as print-ready PDFs.
-    *   Your full data ownership remains transparent, empowering you with control.
+*   Easily export your entire job tracking data to CSV for external analysis or backup.
+*   Download AI-generated documents (resumes, cover letters) as print-ready PDFs.
+*   Your full data ownership remains transparent, empowering you with control.
 
 ---
 
-### Future Enhancements with a Backend (MVP for Robustness)
+### Future Enhancements with a Backend (MVP for Robustness):
+-----
 
 As mentioned, if JobFlow AI were to scale and incorporate a backend, security and privacy could be significantly enhanced to enterprise-grade standards. This is the next logical step for robustness:
 
@@ -81,7 +86,7 @@ As mentioned, if JobFlow AI were to scale and incorporate a backend, security an
 
 ---
 
-### Your Trust is Our Priority
+### **Your Trust is Our Priority**
 
 By choosing JobFlow AI, you're opting for an application where **you retain full control and ownership of your data**, as it remains entirely on your device. We are committed to transparency regarding how your data is handled within our client-side architecture.
 `;

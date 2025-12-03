@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { Job, ViewState, UserProfile, SubscriptionTier, LogActionType } from './types';
 import { storageService } from './services/storageService';
@@ -8,9 +9,11 @@ import { migrateFromLocalStorage } from './services/indexedDbService';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { NotificationProvider, useNotifications } from './context/NotificationContext';
+import { TourProvider, useTour } from './context/TourContext';
 import { Toast } from './components/Toast';
 import { Sidebar } from './components/Sidebar';
 import { AddJobModal } from './components/AddJobModal';
+import { TourPopover } from './components/TourPopover';
 
 const WelcomeView = lazy(() => import('./views/WelcomeView'));
 const AuthView = lazy(() => import('./views/AuthView'));
@@ -29,6 +32,8 @@ const OnlinePresenceView = lazy(() => import('./views/OnlinePresenceView'));
 const PricingView = lazy(() => import('./views/PricingView'));
 const SecurityPrivacyView = lazy(() => import('./views/SecurityPrivacyView'));
 const ResumeBuilderView = lazy(() => import('./views/ResumeBuilderView'));
+const CodePlaygroundView = lazy(() => import('./views/CodePlaygroundView'));
+const ContactView = lazy(() => import('./views/ContactView'));
 
 const AppContent: React.FC<{
   currentUser: string;
@@ -47,13 +52,25 @@ const AppContent: React.FC<{
   const [isAddJobModalOpen, setIsAddJobModalOpen] = useState(false);
   
   const { addNotification } = useNotifications();
+  const { startTour } = useTour();
 
   const loadUserData = useCallback(async () => {
     if (currentUser) {
-      setJobs(await storageService.getJobs(currentUser));
-      setProfile(await storageService.getProfile(currentUser) || null);
+      const userJobs = await storageService.getJobs(currentUser);
+      const userProfile = await storageService.getProfile(currentUser) || null;
+      setJobs(userJobs);
+      setProfile(userProfile);
+
+      if (userProfile && !userProfile.hasCompletedTour) {
+        startTour([
+          { selector: '#nav-PROFILE', content: 'Welcome to JobFlow AI! Let\'s start by setting up your profile. Your master resume is the key to all AI features.' },
+          { selector: '#nav-JOB_SEARCH', content: 'Great! Now, let\'s find some jobs. Use our AI-powered search to discover new opportunities.' },
+          { selector: '#nav-JOBS', content: 'You can track all your applications on this board. Drag and drop jobs to update their status.' },
+          { selector: '#nav-AI_COACH', content: 'Finally, head to the AI Coach to check your resume\'s health or practice for interviews. Good luck!' },
+        ]);
+      }
     }
-  }, [currentUser]);
+  }, [currentUser, startTour]);
 
   useEffect(() => {
     loadUserData();
@@ -68,11 +85,8 @@ const AppContent: React.FC<{
         try {
           const weather = await geminiService.getWeatherByCoords(position.coords.latitude, position.coords.longitude, currentUser);
           if (weather) setGlobalWeather(weather);
-        } catch (error: any) {
-          // Errors are logged in geminiService
-        } finally {
-          setIsFetchingLocation(false);
-        }
+        } catch (error: any) {} 
+        finally { setIsFetchingLocation(false); }
       },
       (error) => {
         setIsFetchingLocation(false);
@@ -88,7 +102,11 @@ const AppContent: React.FC<{
   const handleSaveProfile = async (newProfile: UserProfile) => {
     await storageService.saveProfile(currentUser, newProfile);
     setProfile(newProfile);
-    loadUserData(); // Reload all user data to ensure consistency
+    loadUserData();
+    if(newProfile.hasCompletedTour){
+        const { startTour } = useTour();
+        startTour([]); // This effectively stops the tour if it's running
+    }
   };
   
   const handleUpdateJob = async (job: Job) => {
@@ -120,7 +138,11 @@ const AppContent: React.FC<{
       case 'WORKSPACE': return selectedJob ? <WorkspaceView job={selectedJob} profile={profile} onUpdateJob={handleUpdateJob} onBack={() => { setSelectedJobId(null); setView('JOBS'); }} subscriptionTier={subscriptionTier} currentUser={currentUser} /> : null;
       case 'AI_COACH': return <AICoachView profile={profile} subscriptionTier={subscriptionTier} currentUser={currentUser} />;
       case 'ONLINE_PRESENCE': return <OnlinePresenceView profile={profile} subscriptionTier={subscriptionTier} currentUser={currentUser} />;
+      case 'CODE_PLAYGROUND': return <CodePlaygroundView profile={profile} subscriptionTier={subscriptionTier} currentUser={currentUser} />;
+      case 'CONTACT': return <ContactView onNavigate={() => setView('HOME')} />;
       case 'ADMIN': return isAdmin ? <AdminView currentUserSubscriptionTier={subscriptionTier} currentUser={currentUser} /> : null;
+      case 'PRICING': return <PricingView currentTier={subscriptionTier} currentUser={currentUser} onUpgrade={(newTier) => { /* Handle upgrade logic */ }} onBackToHome={() => setView('HOME')} />;
+      case 'SECURITY_PRIVACY': return <SecurityPrivacyView />;
       default: return <HomeView profile={profile} jobs={jobs} onNavigate={setView} onAddJob={openAddJobModal} />;
     }
   };
@@ -136,13 +158,14 @@ const AppContent: React.FC<{
         </div>
       </main>
       <AddJobModal isOpen={isAddJobModalOpen} onClose={() => setIsAddJobModalOpen(false)} onSave={async (job) => { await storageService.saveJob(currentUser, job); loadUserData(); }} currentUser={currentUser} />
+      <TourPopover />
     </div>
   );
 };
 
 const MainApplicationWrapper = () => {
   const { isAuthenticated, isAdmin, currentUser, subscriptionTier, isLoading, login, logout } = useAuth();
-  const [authFlowState, setAuthFlowState] = useState<'welcome' | 'login' | 'signup' | 'pricing' | 'security_privacy' | 'forgot_credentials' | 'otp_verify'>('welcome');
+  const [authFlowState, setAuthFlowState] = useState<'welcome' | 'login' | 'signup' | 'pricing' | 'security_privacy' | 'forgot_credentials' | 'otp_verify' | 'contact'>('welcome');
   const [view, setView] = useState<ViewState>('HOME');
   const [isAppLoading, setIsAppLoading] = useState(true);
   const { addNotification } = useNotifications();
@@ -163,7 +186,7 @@ const MainApplicationWrapper = () => {
   const handleLoginSuccess = useCallback((username: string, isAdminLogin: boolean, userSubscriptionTier: SubscriptionTier) => {
     login(username, isAdminLogin, userSubscriptionTier);
     setView('HOME');
-    setAuthFlowState('welcome'); // Reset auth flow state on successful login
+    setAuthFlowState('welcome');
   }, [login]);
 
   const handleLogout = useCallback(() => {
@@ -175,7 +198,7 @@ const MainApplicationWrapper = () => {
   
   const handleHashChange = useCallback(() => {
     const hash = window.location.hash.slice(1);
-    const validViews: ViewState[] = ['HOME', 'PROFILE', 'JOB_SEARCH', 'JOBS', 'TRACKER', 'INTERVIEWS', 'ANALYTICS', 'WORKSPACE', 'DONATE', 'AI_COACH', 'ADMIN', 'ONLINE_PRESENCE', 'PRICING', 'SECURITY_PRIVACY', 'RESUME_BUILDER'];
+    const validViews: ViewState[] = ['HOME', 'PROFILE', 'JOB_SEARCH', 'JOBS', 'TRACKER', 'INTERVIEWS', 'ANALYTICS', 'WORKSPACE', 'DONATE', 'AI_COACH', 'ADMIN', 'ONLINE_PRESENCE', 'PRICING', 'SECURITY_PRIVACY', 'RESUME_BUILDER', 'CODE_PLAYGROUND', 'CONTACT'];
     
     if ((validViews as string[]).includes(hash.toUpperCase())) {
       const targetView = hash.toUpperCase() as ViewState;
@@ -184,10 +207,11 @@ const MainApplicationWrapper = () => {
       } else {
         if (targetView === 'PRICING') setAuthFlowState('pricing');
         else if (targetView === 'SECURITY_PRIVACY') setAuthFlowState('security_privacy');
+        else if (targetView === 'CONTACT') setAuthFlowState('contact');
         else setAuthFlowState('login');
       }
     }
-  }, [isAuthenticated, setView, setAuthFlowState]);
+  }, [isAuthenticated]);
   
   useEffect(() => {
     window.addEventListener('hashchange', handleHashChange);
@@ -198,20 +222,30 @@ const MainApplicationWrapper = () => {
   const onNavigate = (target: ViewState) => {
       window.location.hash = target.toLowerCase();
   };
+  
+  const onNavigateUnauth = (target: 'welcome' | 'login' | 'signup' | 'pricing' | 'security_privacy' | 'contact') => {
+    if (target === 'pricing') window.location.hash = 'pricing';
+    else if (target === 'security_privacy') window.location.hash = 'security_privacy';
+    else if (target === 'contact') window.location.hash = 'contact';
+    else setAuthFlowState(target);
+  };
 
   if (isLoading || isAppLoading) return <div className="flex items-center justify-center h-screen">Loading application...</div>;
   
   if (!isAuthenticated) {
+    const hash = window.location.hash.slice(1);
+    if (hash === 'pricing') return <Suspense fallback={<div>Loading...</div>}><PricingView currentTier={null} currentUser={null} onUpgrade={() => {}} onBackToHome={() => onNavigate('HOME')} /></Suspense>;
+    if (hash === 'security_privacy') return <Suspense fallback={<div>Loading...</div>}><SecurityPrivacyView /></Suspense>;
+    if (hash === 'contact') return <Suspense fallback={<div>Loading...</div>}><ContactView onNavigate={() => onNavigate('HOME')} /></Suspense>;
+
     switch (authFlowState) {
-        case 'pricing': return <Suspense fallback={<div>Loading...</div>}><PricingView currentTier={null} currentUser={null} onUpgrade={() => {}} onBackToHome={() => setAuthFlowState('welcome')} /></Suspense>;
-        case 'security_privacy': return <Suspense fallback={<div>Loading...</div>}><SecurityPrivacyView /></Suspense>;
         case 'login':
         case 'signup':
         case 'forgot_credentials':
         case 'otp_verify':
             return <Suspense fallback={<div>Loading...</div>}><AuthView initialMode="login" onLoginSuccess={handleLoginSuccess} onBack={() => setAuthFlowState('welcome')} authFlowState={authFlowState} setAuthFlowState={setAuthFlowState} /></Suspense>;
         default:
-            return <Suspense fallback={<div>Loading...</div>}><WelcomeView onNavigateToAuth={(mode) => setAuthFlowState(mode)} /></Suspense>;
+            return <Suspense fallback={<div>Loading...</div>}><WelcomeView onNavigateToAuth={onNavigateUnauth} /></Suspense>;
     }
   }
 
@@ -224,7 +258,10 @@ const App = () => (
   <ThemeProvider>
     <NotificationProvider>
       <AuthProvider>
-        <MainApplicationWrapper />
+        <TourProvider>
+          <MainApplicationWrapper />
+          <ToastContainer />
+        </TourProvider>
       </AuthProvider>
     </NotificationProvider>
   </ThemeProvider>

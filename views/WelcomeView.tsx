@@ -8,7 +8,7 @@ import { geminiService } from '../services/geminiService';
 
 
 interface WelcomeViewProps {
-  onNavigateToAuth: (mode: 'login' | 'signup' | 'pricing' | 'security_privacy') => void; // Added 'pricing'
+  onNavigateToAuth: (mode: 'login' | 'signup' | 'pricing' | 'security_privacy' | 'contact') => void;
 }
 
 const FeatureCard = ({ icon, title, children }: { icon: React.ReactNode, title: string, children: React.ReactNode }) => (
@@ -124,24 +124,24 @@ const WelcomeView: React.FC<WelcomeViewProps> = ({ onNavigateToAuth }) => {
                   <p className="mt-4 text-lg text-slate-300 max-w-2xl mx-auto">Everything you need to streamline your job search and stand out.</p>
                </div>
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                  {/* FIX: Added children prop content to FeatureCard instances */}
+                  {/* FIX: Added children to FeatureCard components */}
                   <FeatureCard icon={<Target size={24} />} title="AI Match Analysis">
-                      Instantly see how your resume stacks up against a job description. Get a compatibility score and a detailed breakdown of matching and missing skills.
+                    Instantly see how your resume stacks up against a job description. Get a compatibility score and a detailed breakdown of matching and missing skills.
                   </FeatureCard>
                    <FeatureCard icon={<FileText size={24} />} title="Tailored Resumes">
-                      Automatically rewrite your master resume to perfectly align with the keywords and requirements of a specific job, optimized for any ATS.
+                    Automatically rewrite your master resume to perfectly align with the keywords and requirements of a specific job, optimized for any ATS.
                   </FeatureCard>
                    <FeatureCard icon={<MessageSquare size={24} />} title="Cover Letter Generation">
-                      Create a compelling, professional, and personalized cover letter in seconds. No more staring at a blank page.
+                    Create a compelling, professional, and personalized cover letter in seconds. No more staring at a blank page.
                   </FeatureCard>
                   <FeatureCard icon={<Bot size={24} />} title="Interview Prep Guide">
-                      Generate a list of tailored behavioral and technical questions based on the job, complete with suggested answers using the STAR method.
+                    Generate a list of tailored behavioral and technical questions based on the job, complete with suggested answers using the STAR method.
                   </FeatureCard>
                    <FeatureCard icon={<PieChart size={24} />} title="Application Tracker">
-                      Visualize your job pipeline with an intuitive Kanban board and track your progress with insightful analytics.
+                    Visualize your job pipeline with an intuitive Kanban board and track your progress with insightful analytics.
                   </FeatureCard>
                    <FeatureCard icon={<Lock size={24} />} title="100% Private & Local">
-                      Your profile, jobs, and all generated content are stored exclusively in your browser. No data ever leaves your computer.
+                    Your profile, jobs, and all generated content are stored exclusively in your browser. No data ever leaves your computer.
                   </FeatureCard>
                </div>
             </div>
@@ -191,11 +191,16 @@ const WelcomeView: React.FC<WelcomeViewProps> = ({ onNavigateToAuth }) => {
 
       {/* Footer */}
       <footer className="relative z-10 py-12 px-4 md:px-8 border-t border-white/10 mt-auto">
-          <div className="max-w-7xl mx-auto text-center text-slate-400 text-sm">
-              <p className="mb-2">&copy; {new Date().getFullYear()} JobFlow AI Built with <Heart size={16} className="text-red-500 fill-red-500" /> by <span className="text-gray-900 dark:text-white font-bold">Purushotham Muktha</span>. All Rights Reserved.</p>
-              <button onClick={() => onNavigateToAuth('security_privacy')} className="font-bold text-indigo-300 hover:underline transition-colors">
-                Security & Privacy
-              </button>
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center text-slate-400 text-sm gap-4">
+              <p>&copy; {new Date().getFullYear()} JobFlow AI Built with <Heart size={16} className="text-red-500 fill-red-500 inline" /> by <span className="text-white font-bold">Purushotham Muktha</span>.</p>
+              <div className="flex gap-4">
+                <button onClick={() => onNavigateToAuth('security_privacy')} className="font-bold text-indigo-300 hover:underline transition-colors">
+                  Security & Privacy
+                </button>
+                <button onClick={() => onNavigateToAuth('contact')} className="font-bold text-indigo-300 hover:underline transition-colors">
+                  Contact Us
+                </button>
+              </div>
           </div>
       </footer>
       <style>{`

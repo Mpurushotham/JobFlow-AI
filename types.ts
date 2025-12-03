@@ -1,4 +1,5 @@
 
+
 export enum JobStatus {
   WISHLIST = 'WISHLIST',
   APPLIED = 'APPLIED',
@@ -113,7 +114,7 @@ export interface ResumeSection {
   title: string;
   content: string | ExperienceItem[] | EducationItem[] | SkillItem[] | ProjectItem[] | CertificationItem[] | AwardItem[];
   order: number;
-  type: 'text' | 'experience' | 'education' | 'skills' | 'projects' | 'certifications' | 'awards';
+  type: 'text' | 'experience' | 'education' | 'skills' | 'projects' | 'certifications' | 'awards' | 'publications' | 'volunteer_experience';
 }
 
 export interface ResumeData {
@@ -144,6 +145,26 @@ export interface LearningPath {
   skillTopics: SkillTopic[];
 }
 
+// NEW: Interfaces for new features
+export interface CodeEvaluation {
+    correctness: { feedback: string; pass: boolean; };
+    efficiency: { feedback: string; pass: boolean; };
+    style: { feedback: string; pass: boolean; };
+    suggestions: string;
+}
+
+export interface InterviewTips {
+    before: string[];
+    after: string[];
+}
+
+export interface JobSkillAnalysis {
+    keySkills: string[];
+    gaps: string[];
+    talkingPoints: { skill: string; point: string; }[];
+}
+
+
 export enum SubscriptionTier {
   FREE = 'FREE',
   AI_PRO = 'AI_PRO',
@@ -165,6 +186,7 @@ export interface UserProfile {
   targetJobDescription?: string;
   masterResumeFit?: string;
   subscriptionTier?: SubscriptionTier;
+  hasCompletedTour?: boolean;
 }
 
 export interface ResumeATSScore {
@@ -207,7 +229,7 @@ export interface RecentSearchQuery {
   timestamp: number;
 }
 
-export type ViewState = 'HOME' | 'PROFILE' | 'JOB_SEARCH' | 'JOBS' | 'TRACKER' | 'INTERVIEWS' | 'ANALYTICS' | 'WORKSPACE' | 'DONATE' | 'AI_COACH' | 'ADMIN' | 'ONLINE_PRESENCE' | 'PRICING' | 'SECURITY_PRIVACY' | 'RESUME_BUILDER';
+export type ViewState = 'HOME' | 'PROFILE' | 'JOB_SEARCH' | 'JOBS' | 'TRACKER' | 'INTERVIEWS' | 'ANALYTICS' | 'WORKSPACE' | 'DONATE' | 'AI_COACH' | 'ADMIN' | 'ONLINE_PRESENCE' | 'PRICING' | 'SECURITY_PRIVACY' | 'RESUME_BUILDER' | 'CODE_PLAYGROUND' | 'CONTACT';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -282,7 +304,9 @@ export enum LogActionType {
   RESUME_BUILDER_OPEN = 'Resume Builder Opened',
   RESUME_BUILDER_AI_AUTOFILL = 'Resume Builder Auto-Filled (AI)',
   RESUME_BUILDER_SECTION_EDIT = 'Resume Builder Section Edited',
-  RESUME_ATS_EVALUATED = 'ATS Score Evaluated (AI)',
+  ATS_SCORE_EVALUATED = 'ATS Score Evaluated (AI)',
+  // FIX: Added missing LogActionType for master resume fit analysis.
+  RESUME_ATS_EVALUATED = 'Master Resume Fit Analysis (AI)',
   RESUME_DOWNLOAD = 'Resume Downloaded',
   RESUME_DOWNLOAD_DOCX = 'Resume Downloaded (DOCX)',
   SUBSCRIPTION_CHANGE = 'Subscription Tier Changed',
@@ -298,6 +322,15 @@ export enum LogActionType {
   ONLINE_EVENT = 'Online Mode Detected',
   GEOLOCATION_FETCH = 'Geolocation Fetched',
   API_KEY_MISSING = 'API Key Missing',
+  CODE_PROBLEM_GENERATE = 'Code Problem Generated (AI)',
+  CODE_EVALUATE = 'Code Evaluated (AI)',
+  RESUME_TEMPLATE_GENERATE = 'Resume Template Generated (AI)',
+  INTERVIEW_TIPS_GENERATE = 'Interview Tips Generated (AI)',
+  JOB_SKILL_ANALYSIS = 'Job Skill Analysis (AI)',
+  TOUR_START = 'User Tour Started',
+  TOUR_STEP = 'User Tour Step Completed',
+  TOUR_SKIP = 'User Tour Skipped',
+  TOUR_COMPLETE = 'User Tour Completed',
 }
 
 export interface AppActivityLogEntry {

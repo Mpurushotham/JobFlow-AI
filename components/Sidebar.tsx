@@ -1,4 +1,5 @@
 
+
 import React from 'react';
 import { 
   Home, 
@@ -14,7 +15,7 @@ import {
   Settings,
   LogOut,
   Globe,
-  Sun, Cloud, CloudRain, CloudSnow, Wind, RefreshCw, BrainCircuit, Wallet, Mail, FileCheck // Import FileCheck for Resume Builder
+  Sun, Cloud, CloudRain, CloudSnow, Wind, RefreshCw, BrainCircuit, Wallet, Mail, FileCheck, Code
 } from 'lucide-react';
 import { ViewState, SubscriptionTier, LogActionType } from '../types';
 import { ThemeToggle } from './ThemeToggle';
@@ -81,6 +82,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ view, setView, sidebarOpen, se
         <NavItem id="ANALYTICS" icon={PieChart} label="Analytics" />
         <NavItem id="AI_COACH" icon={Bot} label="AI Coach" />
         <NavItem id="ONLINE_PRESENCE" icon={Globe} label="Online Presence" />
+        <NavItem id="CODE_PLAYGROUND" icon={Code} label="Code Playground" />
 
         <div className="pt-6 pb-2 px-4 text-[10px] font-bold text-gray-400 dark:text-slate-500 uppercase tracking-widest">Account</div>
         <NavItem id="PRICING" icon={Wallet} label="Pricing Plans" />

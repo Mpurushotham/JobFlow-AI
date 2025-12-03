@@ -12,7 +12,6 @@ export const storageService = {
 
   async saveJob(username: string, job: Job): Promise<void> {
     if (!username) return;
-    // FIX: Pass job and username as separate arguments to match indexedDbService.saveJob signature.
     return indexedDbService.saveJob(job, username);
   },
 
@@ -149,7 +148,6 @@ export const storageService = {
     await indexedDbService.saveProfile(profileToImport);
     await indexedDbService.deleteAllJobsForUser(currentUsername);
     for (const job of jobsToImport) {
-        // FIX: Pass job and username as separate arguments to match indexedDbService.saveJob signature.
         await indexedDbService.saveJob(job, currentUsername);
     }
     
